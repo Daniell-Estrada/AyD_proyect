@@ -94,7 +94,6 @@ export const STATUS_COLORS = {
   },
 } as const;
 
-// Complexity Notation Colors
 export const COMPLEXITY_COLORS = {
   worst_case: {
     bg: "bg-red-500/10",

@@ -6,7 +6,6 @@ interface MarkdownRendererProps {
   content: string;
 }
 
-// Render markdown chat content with dark-mode friendly theming and semantic components.
 const markdownComponents: Components = {
   p: ({ children }) => (
     <p className="text-sm leading-relaxed text-foreground">{children}</p>
@@ -14,7 +13,9 @@ const markdownComponents: Components = {
   strong: ({ children }) => (
     <strong className="text-foreground font-semibold">{children}</strong>
   ),
-  em: ({ children }) => <em className="italic text-foreground/90">{children}</em>,
+  em: ({ children }) => (
+    <em className="italic text-foreground/90">{children}</em>
+  ),
   a: ({ children, href }) => (
     <a
       href={href}
@@ -42,9 +43,8 @@ const markdownComponents: Components = {
     </blockquote>
   ),
   code: ({ children, className, ...props }) => {
-    // Check if code is inline by inspecting props or node structure
-    const isInline = !className?.includes('language-');
-    
+    const isInline = !className?.includes("language-");
+
     if (isInline) {
       return (
         <code
@@ -58,7 +58,10 @@ const markdownComponents: Components = {
 
     return (
       <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/20 p-3">
-        <code className={`font-mono text-xs leading-relaxed text-foreground ${className || ""}`} {...props}>
+        <code
+          className={`font-mono text-xs leading-relaxed text-foreground ${className || ""}`}
+          {...props}
+        >
           {children}
         </code>
       </pre>
@@ -66,7 +69,6 @@ const markdownComponents: Components = {
   },
 };
 
-// Provide a reusable markdown renderer to keep markdown logic isolated from chat components.
 export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <ReactMarkdown

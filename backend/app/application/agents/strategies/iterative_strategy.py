@@ -6,6 +6,8 @@ Analyzes loop nesting depth, iteration counts, and sequential compositions.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+import sympy as sp
+
 from app.application.agents.strategies.base_strategy import \
     ComplexityAnalysisStrategy
 from app.domain.services.complexity_service import ComplexityAnalysisService
@@ -25,9 +27,6 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
         llm_service=None,
         enable_llm_peer_review: bool = False,
     ):
-        """
-        Initialize iterative analysis strategy.
-        """
         self._complexity_service = complexity_service or ComplexityAnalysisService()
         self._llm_service = llm_service
         self._enable_llm_peer_review = enable_llm_peer_review
@@ -43,6 +42,7 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
         loop_insights = self._analyze_loops(ast_dict)
         has_geometric_loop = loop_insights["has_geometric"]
         geometric_multiplier = loop_insights.get("geometric_multiplier") or 0
+        has_binary_partition = loop_insights.get("binary_partition", False)
 
         def _as_non_negative_int(value: Any, fallback: int) -> int:
             try:
@@ -62,6 +62,9 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
         loop_count = _as_non_negative_int(loop_count_raw, 0)
 
         has_sequential_loops = bool(patterns.get("has_sequential_loops"))
+        requires_nlogn_lower_bound = bool(
+            patterns.get("has_priority_queue") or patterns.get("has_sorting")
+        )
 
         if not has_loops or loop_count == 0 or max_depth == 0:
             complexity = "O(1)"
@@ -81,6 +84,11 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
                 f"remaining nesting contributes {power_phrase}"
             )
             step_name = "Geometric Loop Analysis"
+            if has_binary_partition:
+                explanation = (
+                    "Binary partition (e.g., halving the search interval) yields log n iterations; "
+                    f"remaining nesting contributes {power_phrase}"
+                )
         elif max_depth == 1:
             complexity = "O(n)"
             explanation = "Single loop iterating over input"
@@ -102,6 +110,11 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
             "best_case": best_case,
             "average_case": average_case,
         }
+
+        if requires_nlogn_lower_bound:
+            complexities["best_case"] = self._ensure_lower_bound(
+                complexities["best_case"], "O(n log n)"
+            )
 
         steps = [
             {
@@ -131,6 +144,10 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
                     "geometric_growth": True,
                 }
             )
+            if has_binary_partition:
+                steps[-1]["note"] = (
+                    "Loop halves the remaining search interval (binary search pattern)."
+                )
 
         if has_loops and patterns.get("has_repeat_until"):
             steps[0][
@@ -154,7 +171,11 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
     def _analyze_loops(self, node: Any) -> Dict[str, Any]:
         """Detect geometric-growth loops from the AST dictionary."""
 
-        insights = {"has_geometric": False, "geometric_multiplier": None}
+        insights = {
+            "has_geometric": False,
+            "geometric_multiplier": None,
+            "binary_partition": False,
+        }
 
         def visit(obj: Any):
             if not isinstance(obj, dict):
@@ -179,7 +200,43 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
                     visit(value)
 
         visit(node)
+
+        if not insights["binary_partition"]:
+            if self._has_binary_partition_loop(node) or self._detect_binary_partition_midpoint(
+                node
+            ):
+                insights["binary_partition"] = True
+                insights["has_geometric"] = True
+                insights["geometric_multiplier"] = (
+                    insights["geometric_multiplier"] or 2
+                )
+
         return insights
+
+    def _ensure_lower_bound(self, observed: Optional[str], minimum: str) -> str:
+        """Ensure the reported complexity is not asymptotically below a minimum bound."""
+
+        if not minimum:
+            return observed or minimum
+
+        observed_expr = self._complexity_service.parse_complexity(observed or "")
+        minimum_expr = self._complexity_service.parse_complexity(minimum)
+
+        if minimum_expr == 0:
+            return observed or minimum
+
+        if observed_expr == 0:
+            return minimum
+
+        try:
+            ratio = sp.simplify(observed_expr / minimum_expr)
+            limit_val = sp.limit(ratio, self._complexity_service.n, sp.oo)
+            if limit_val == 0:
+                return minimum
+        except Exception:
+            logger.debug("Failed to compare complexities for lower bound enforcement", exc_info=True)
+
+        return observed or minimum
 
     def _extract_cond_var(self, cond: Any) -> Optional[str]:
         """Extract loop control variable name from a simple binary condition."""
@@ -270,3 +327,204 @@ class IterativeAnalysisStrategy(ComplexityAnalysisStrategy):
                     return 1.0 + mul
 
         return None
+    
+    def _has_binary_partition_loop(self, node: Any) -> bool:
+            if isinstance(node, dict):
+                if node.get("type") == "WhileLoop":
+                    cond_vars = self._collect_condition_vars(node.get("cond"))
+                    if len(cond_vars) >= 2 and self._body_has_binary_partition(
+                        node.get("body", []), cond_vars
+                    ):
+                        return True
+                for value in node.values():
+                    if isinstance(value, (dict, list)) and self._has_binary_partition_loop(
+                        value
+                    ):
+                        return True
+            elif isinstance(node, list):
+                for item in node:
+                    if self._has_binary_partition_loop(item):
+                        return True
+            return False
+
+    def _detect_binary_partition_midpoint(self, node: Any) -> bool:
+        def visit(current: Any) -> bool:
+            if isinstance(current, dict):
+                if current.get("type") == "WhileLoop":
+                    cond_vars = self._collect_condition_vars(current.get("cond"))
+                    if len(cond_vars) >= 2 and self._body_contains_binary_partition(
+                        current.get("body", []), cond_vars
+                    ):
+                        return True
+                for value in current.values():
+                    if isinstance(value, (dict, list)) and visit(value):
+                        return True
+            elif isinstance(current, list):
+                for item in current:
+                    if visit(item):
+                        return True
+            return False
+
+        return visit(node)
+
+    def _body_has_binary_partition(self, body: List[Any], cond_vars: set[str]) -> bool:
+        assignments: List[Dict[str, Any]] = []
+        self._collect_assignments(body, assignments)
+
+        midpoint_var: Optional[str] = None
+        for stmt in assignments:
+            target = stmt.get("target") or {}
+            if target.get("type") != "VarTarget":
+                continue
+            if self._contains_midpoint_expr(stmt.get("value"), cond_vars):
+                midpoint_var = target.get("name")
+                break
+
+        if not midpoint_var:
+            return False
+
+        updates = {var: False for var in cond_vars}
+        for stmt in assignments:
+            target = stmt.get("target") or {}
+            name = target.get("name")
+            if target.get("type") == "VarTarget" and name in updates:
+                if self._expression_references_var(stmt.get("value"), midpoint_var):
+                    updates[name] = True
+
+        return any(updates.values())
+
+    def _body_contains_binary_partition(
+        self, body: List[Any], cond_vars: set[str]
+    ) -> bool:
+        assignments: List[Dict[str, Any]] = []
+        self._collect_assignments(body, assignments)
+        for stmt in assignments:
+            midpoint_var = self._extract_midpoint_candidate(stmt, cond_vars)
+            if midpoint_var and self._boundaries_reference_mid(
+                assignments, cond_vars, midpoint_var
+            ):
+                return True
+        return False
+
+    def _extract_midpoint_candidate(
+        self, stmt: Dict[str, Any], cond_vars: set[str]
+    ) -> Optional[str]:
+        target = (stmt or {}).get("target") or {}
+        if target.get("type") != "VarTarget":
+            return None
+        name = target.get("name")
+        if not name:
+            return None
+        if self._expression_has_conditional_halving(stmt.get("value"), cond_vars):
+            return name
+        return None
+
+    def _boundaries_reference_mid(
+        self,
+        assignments: List[Dict[str, Any]],
+        cond_vars: set[str],
+        midpoint_var: str,
+    ) -> bool:
+        for stmt in assignments:
+            target = (stmt or {}).get("target") or {}
+            if target.get("type") == "VarTarget" and target.get("name") in cond_vars:
+                if self._expression_references_var(stmt.get("value"), midpoint_var):
+                    return True
+        return False
+
+    def _expression_has_conditional_halving(
+        self, expr: Any, cond_vars: set[str]
+    ) -> bool:
+        if isinstance(expr, dict):
+            node_type = expr.get("type")
+            if node_type == "BinOp":
+                op = str(expr.get("op") or "").lower()
+                if op in {"/", "//", "div"} and self._is_number_two(expr.get("right")):
+                    involved = self._collect_vars(expr.get("left"))
+                    return bool(involved & cond_vars)
+                if op in {"+", "-"}:
+                    return self._expression_has_conditional_halving(
+                        expr.get("left"), cond_vars
+                    ) or self._expression_has_conditional_halving(
+                        expr.get("right"), cond_vars
+                    )
+            elif node_type in {"FuncCallExpr", "CallMethod"}:
+                for arg in expr.get("args") or []:
+                    if self._expression_has_conditional_halving(arg, cond_vars):
+                        return True
+                if node_type == "CallMethod" and self._expression_has_conditional_halving(
+                    expr.get("obj"), cond_vars
+                ):
+                    return True
+            for value in expr.values():
+                if isinstance(value, (dict, list)) and self._expression_has_conditional_halving(
+                    value, cond_vars
+                ):
+                    return True
+        elif isinstance(expr, list):
+            return any(
+                self._expression_has_conditional_halving(item, cond_vars)
+                for item in expr
+            )
+        return False
+
+    def _collect_assignments(self, node: Any, sink: List[Dict[str, Any]]) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "Assignment":
+                sink.append(node)
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    self._collect_assignments(value, sink)
+        elif isinstance(node, list):
+            for item in node:
+                self._collect_assignments(item, sink)
+
+    def _collect_condition_vars(self, cond: Any) -> set[str]:
+        return self._collect_vars(cond)
+
+    def _collect_vars(self, node: Any) -> set[str]:
+        names: set[str] = set()
+
+        def visit(current: Any) -> None:
+            if isinstance(current, dict):
+                node_type = current.get("type")
+                if node_type in {"Var", "VarTarget"}:
+                    name = current.get("name")
+                    if name:
+                        names.add(name)
+                for value in current.values():
+                    if isinstance(value, (dict, list)):
+                        visit(value)
+            elif isinstance(current, list):
+                for item in current:
+                    visit(item)
+
+        visit(node)
+        return names
+
+    def _contains_midpoint_expr(self, expr: Any, cond_vars: set[str]) -> bool:
+        if isinstance(expr, dict):
+            if expr.get("type") == "BinOp" and expr.get("op") == "/":
+                if self._is_number_two(expr.get("right")):
+                    left_vars = self._collect_vars(expr.get("left"))
+                    if len(cond_vars) <= 1:
+                        return bool(left_vars & cond_vars)
+                    return len(left_vars & cond_vars) >= 2
+            for value in expr.values():
+                if isinstance(value, (dict, list)) and self._contains_midpoint_expr(
+                    value, cond_vars
+                ):
+                    return True
+        elif isinstance(expr, list):
+            return any(self._contains_midpoint_expr(item, cond_vars) for item in expr)
+        return False
+
+    def _expression_references_var(self, expr: Any, var_name: str) -> bool:
+        return var_name in self._collect_vars(expr)
+
+    def _is_number_two(self, node: Any) -> bool:
+        if isinstance(node, dict) and node.get("type") == "Number":
+            return node.get("value") == 2
+        if isinstance(node, (int, float)):
+            return node == 2
+        return False

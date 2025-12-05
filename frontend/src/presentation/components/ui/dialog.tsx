@@ -8,7 +8,11 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogPortal = DialogPrimitive.Portal;
 export const DialogClose = DialogPrimitive.Close;
 
-export function DialogContent({ className, children, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+export function DialogContent({
+  className,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPortal>
       <DialogPrimitive.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
@@ -29,14 +33,33 @@ export function DialogContent({ className, children, ...props }: React.Component
   );
 }
 
-export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function DialogHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={clsx("mb-4 space-y-1", className)} {...props} />;
 }
 
-export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={clsx("text-lg font-semibold text-foreground", className)} {...props} />;
+export function DialogTitle({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      className={clsx("text-lg font-semibold text-foreground", className)}
+      {...props}
+    />
+  );
 }
 
-export function DialogDescription({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
-  return <DialogPrimitive.Description className={clsx("text-sm text-muted-foreground", className)} {...props} />;
+export function DialogDescription({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      className={clsx("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  );
 }

@@ -1,6 +1,5 @@
 """
-MongoDB service for managing sessions and analysis results.
-Uses Motor for async operations with MongoDB.
+MongoDB Service Module for managing sessions, analysis results, and agent logs.
 """
 
 import logging
@@ -22,7 +21,6 @@ class MongoDBService:
     """
 
     def __init__(self):
-        """Initialize MongoDB client."""
         self.client: Optional[AsyncIOMotorClient] = None
         self.db: Optional[AsyncIOMotorDatabase] = None
         self._connected = False
@@ -33,13 +31,11 @@ class MongoDBService:
             self.client = AsyncIOMotorClient(settings.mongodb_uri)
             self.db = self.client[settings.mongodb_db_name]
 
-            # Test connection
             await self.client.admin.command("ping")
             self._connected = True
 
             logger.info(f"Connected to MongoDB: {settings.mongodb_db_name}")
 
-            # Create indexes
             await self._create_indexes()
 
         except PyMongoError as e:
@@ -55,20 +51,13 @@ class MongoDBService:
 
     async def _create_indexes(self):
         """Create necessary indexes for collections."""
-        # Sessions collection indexes
         await self.db.sessions.create_index("session_id", unique=True)
         await self.db.sessions.create_index("created_at")
         await self.db.sessions.create_index("status")
-
-        # Analysis results collection indexes
         await self.db.analysis_results.create_index("session_id")
         await self.db.analysis_results.create_index("created_at")
-
-        # Agent logs collection indexes
         await self.db.agent_logs.create_index("session_id")
         await self.db.agent_logs.create_index("timestamp")
-
-    # ===== Session Management =====
 
     async def create_session(
         self,
@@ -78,14 +67,6 @@ class MongoDBService:
     ) -> Dict[str, Any]:
         """
         Create a new analysis session.
-
-        Args:
-            session_id: Unique session identifier
-            user_input: User's input (pseudocode or natural language)
-            metadata: Additional metadata
-
-        Returns:
-            Created session document
         """
         session = {
             "session_id": session_id,
@@ -116,13 +97,6 @@ class MongoDBService:
     ) -> bool:
         """
         Update session data.
-
-        Args:
-            session_id: Session identifier
-            update_data: Fields to update
-
-        Returns:
-            True if successful
         """
         update_data["updated_at"] = datetime.utcnow()
 
@@ -173,15 +147,6 @@ class MongoDBService:
     ) -> bool:
         """
         Record Human-in-the-Loop approval/denial.
-
-        Args:
-            session_id: Session identifier
-            stage: Workflow stage where approval was requested
-            action: User action ('approve', 'deny', 'edit')
-            feedback: Optional user feedback or edits
-
-        Returns:
-            True if successful
         """
         approval_record = {
             "stage": stage,
@@ -200,8 +165,6 @@ class MongoDBService:
 
         return result.modified_count > 0
 
-    # ===== Analysis Results =====
-
     async def save_analysis_result(
         self,
         session_id: str,
@@ -217,21 +180,6 @@ class MongoDBService:
     ) -> str:
         """
         Save complete analysis result.
-
-        Args:
-            session_id: Associated session ID
-            algorithm_name: Name of the analyzed algorithm
-            pseudocode: Parsed/translated pseudocode
-            ast: Abstract Syntax Tree representation
-            paradigm: Algorithmic paradigm (e.g., 'divide_and_conquer')
-            complexities: Dict with 'big_o', 'omega', 'theta' complexity notations
-            analysis_steps: List of analysis steps with reasoning
-            diagrams: Dict with diagram types and Mermaid strings
-            validation_results: Validation results from deterministic checks
-            metadata: Additional metadata
-
-        Returns:
-            Result document ID
         """
         result = {
             "session_id": session_id,
@@ -252,9 +200,7 @@ class MongoDBService:
 
         return str(insert_result.inserted_id)
 
-    async def get_analysis_results(
-        self, session_id: str
-    ) -> List[Dict[str, Any]]:
+    async def get_analysis_results(self, session_id: str) -> List[Dict[str, Any]]:
         """Get all analysis results for a session."""
         cursor = self.db.analysis_results.find({"session_id": session_id})
         return await cursor.to_list(length=None)
@@ -267,8 +213,6 @@ class MongoDBService:
             {"session_id": session_id}, sort=[("created_at", -1)]
         )
 
-    # ===== Agent Logs =====
-
     async def log_agent_action(
         self,
         *,
@@ -280,19 +224,8 @@ class MongoDBService:
         metrics: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> str:
-        """Persist a lifecycle event emitted by an agent stage.
-
-        Args:
-            session_id: Associated session identifier
-            agent_name: Logical agent name (e.g., "TranslatorAgent")
-            stage: Workflow stage (e.g., "translation")
-            status: Event status (started/completed/failed/pending/resolved)
-            payload: Additional metadata describing the event
-            metrics: Optional usage metrics for the stage
-            error: Optional error message when the stage fails
-
-        Returns:
-            Mongo document identifier as a string
+        """
+        Persist a lifecycle event emitted by an agent stage.
         """
 
         log_entry: Dict[str, Any] = {
@@ -304,7 +237,6 @@ class MongoDBService:
             "timestamp": datetime.utcnow(),
         }
 
-        # Persist legacy fields to remain backward compatible with existing data.
         log_entry["action"] = stage
         log_entry["output_data"] = payload or {}
 
@@ -321,13 +253,6 @@ class MongoDBService:
     ) -> List[Dict[str, Any]]:
         """
         Get agent logs for a session.
-
-        Args:
-            session_id: Session ID
-            agent_name: Optional filter by agent name
-
-        Returns:
-            List of log entries
         """
         query = {"session_id": session_id}
         if agent_name:
@@ -335,8 +260,6 @@ class MongoDBService:
 
         cursor = self.db.agent_logs.find(query).sort("timestamp", 1)
         return await cursor.to_list(length=None)
-
-    # ===== Query Methods =====
 
     async def get_sessions_by_status(
         self, status: str, limit: int = 100
@@ -357,25 +280,13 @@ class MongoDBService:
     async def delete_session(self, session_id: str) -> bool:
         """
         Delete session and all related data.
-
-        Args:
-            session_id: Session ID to delete
-
-        Returns:
-            True if successful
         """
-        # Delete session
         await self.db.sessions.delete_one({"session_id": session_id})
-
-        # Delete related analysis results
         await self.db.analysis_results.delete_many({"session_id": session_id})
-
-        # Delete related logs
         await self.db.agent_logs.delete_many({"session_id": session_id})
 
         logger.info(f"Deleted session and related data: {session_id}")
         return True
 
 
-# Global instance
 mongodb_service = MongoDBService()

@@ -31,7 +31,6 @@ export default function HomePage() {
       console.error("Health check failed:", error);
       setHealthStatus("error");
       if (!errorToastShownRef.current) {
-        toast.error("Backend server is not available");
         errorToastShownRef.current = true;
       }
     }
@@ -43,7 +42,7 @@ export default function HomePage() {
       const sessions = await ApiService.listSessions(12);
       setRecentSessions(sessions);
     } catch (_) {
-      toast.error("Failed to load recent sessions");
+      error("Failed to load recent sessions");
     } finally {
       setIsLoading(false);
     }

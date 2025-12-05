@@ -33,7 +33,8 @@ class SocketService implements ISocketService {
         reconnectionDelay: 1000,
       });
 
-      const setConnected = () => useStore.getState().setConnected(true, this.socket?.id);
+      const setConnected = () =>
+        useStore.getState().setConnected(true, this.socket?.id);
       const setDisconnected = () => useStore.getState().setConnected(false);
 
       this.socket.on("connect", () => {

@@ -10,6 +10,8 @@ from app.application.agents.strategies.backtracking_strategy import \
     BacktrackingAnalysisStrategy
 from app.application.agents.strategies.base_strategy import \
     ComplexityAnalysisStrategy
+from app.application.agents.strategies.branching_recursion_strategy import \
+    BranchingRecursionAnalysisStrategy
 from app.application.agents.strategies.divide_and_conquer_strategy import \
     DivideAndConquerAnalysisStrategy
 from app.application.agents.strategies.dynamic_programming_strategy import \
@@ -29,14 +31,14 @@ class AnalysisStrategyFactory:
     Implements Factory Method pattern with dependency injection.
     """
 
-    # Map paradigm names to strategy classes
     _STRATEGY_MAP: Dict[str, type] = {
         "divide_and_conquer": DivideAndConquerAnalysisStrategy,
         "dynamic_programming": DynamicProgrammingAnalysisStrategy,
         "iterative": IterativeAnalysisStrategy,
-        "simple": IterativeAnalysisStrategy,  # simple algorithms use iterative analysis
+        "simple": IterativeAnalysisStrategy,
         "greedy": GreedyAnalysisStrategy,
         "backtracking": BacktrackingAnalysisStrategy,
+        "branching_recursion": BranchingRecursionAnalysisStrategy,
     }
 
     def __init__(
@@ -45,9 +47,6 @@ class AnalysisStrategyFactory:
         llm_service: LLMService,
         enable_llm_peer_review: bool = False,
     ):
-        """
-        Initialize strategy factory with required services.
-        """
         self._complexity_service = complexity_service
         self._llm_service = llm_service
         self._enable_llm_peer_review = enable_llm_peer_review

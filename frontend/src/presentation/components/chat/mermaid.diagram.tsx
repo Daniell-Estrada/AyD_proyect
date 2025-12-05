@@ -20,7 +20,14 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
   const [renderedSvg, setRenderedSvg] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragState = useRef<{ dragging: boolean; startX: number; startY: number; originX: number; originY: number }>({
+  const [isDragging, setIsDragging] = useState(false);
+  const dragState = useRef<{
+    dragging: boolean;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  }>({
     dragging: false,
     startX: 0,
     startY: 0,
@@ -31,9 +38,21 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
   useEffect(() => {
     mermaid.initialize({
       startOnLoad: true,
-      theme: "dark",
       securityLevel: "loose",
-      fontFamily: "monospace",
+      theme: "dark",
+      fontFamily: "IBM Plex Mono, monospace",
+      themeVariables: {
+        primaryColor: "#4F46E5",
+        primaryTextColor: "#FFFFFF",
+        primaryBorderColor: "#4338CA",
+        secondaryColor: "#E0E7FF",
+        secondaryTextColor: "#111827",
+        secondaryBorderColor: "#C7D2FE",
+        tertiaryColor: "#111827",
+        lineColor: "#4338CA",
+        textColor: "#E5E7EB",
+        background: "#0B1120",
+      },
     });
 
     if (containerRef.current && chart) {
@@ -42,10 +61,17 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
       mermaid
         .render(id, chart)
         .then(({ svg }: any) => {
+          const responsiveSvg = svg.includes("data-responsive-mermaid")
+            ? svg
+            : svg.replace(
+                "<svg",
+                '<svg data-responsive-mermaid="true" preserveAspectRatio="xMidYMid meet" style="max-width:100%;height:auto;display:block"',
+              );
+
           if (containerRef.current) {
-            containerRef.current.innerHTML = svg;
+            containerRef.current.innerHTML = responsiveSvg;
           }
-          setRenderedSvg(svg);
+          setRenderedSvg(responsiveSvg);
         })
         .catch((_) => {
           if (containerRef.current) {
@@ -60,8 +86,6 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
   }, [chart]);
 
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    // Respect user intent: only zoom when holding ctrl (touchpad pinch) to avoid accidental zooms.
-    if (!event.ctrlKey) return;
     event.preventDefault();
     const delta = -event.deltaY;
     setZoom((prev) => {
@@ -71,6 +95,7 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    setIsDragging(true);
     dragState.current = {
       dragging: true,
       startX: event.clientX,
@@ -84,11 +109,15 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
     if (!dragState.current.dragging) return;
     const dx = event.clientX - dragState.current.startX;
     const dy = event.clientY - dragState.current.startY;
-    setPan({ x: dragState.current.originX + dx, y: dragState.current.originY + dy });
+    setPan({
+      x: dragState.current.originX + dx,
+      y: dragState.current.originY + dy,
+    });
   };
 
   const handleMouseUp = () => {
     dragState.current.dragging = false;
+    setIsDragging(false);
   };
 
   const resetView = () => {
@@ -98,7 +127,7 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
 
   return (
     <>
-      <Card className="p-4 bg-background border-border overflow-x-auto relative">
+      <Card className="p-4 bg-background border-border overflow-hidden relative">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
@@ -116,56 +145,35 @@ export default function MermaidDiagram({ chart }: MermaidDiagramProps) {
           <DialogHeader>
             <DialogTitle>Diagram</DialogTitle>
             <DialogDescription>
-              Use Ctrl + scroll/touchpad to zoom, drag to pan, or use the +/- controls. Click outside or press ESC to close.
+              Scroll inside the canvas or use the controls to zoom. Drag while
+              holding the mouse button to pan. Double-click anywhere to reset
+              the view.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-3 mb-3 text-xs text-muted-foreground">
-            <label className="flex items-center gap-2">
-              Zoom
-              <span className="tabular-nums text-foreground">{Math.round(zoom * 100)}%</span>
-            </label>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.1).toFixed(2))))}
-                className="px-2 py-1 rounded border border-border text-foreground hover:bg-accent/50"
-              >
-                –
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(3, Number((z + 0.1).toFixed(2))))}
-                className="px-2 py-1 rounded border border-border text-foreground hover:bg-accent/50"
-              >
-                +
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={resetView}
-              className="px-2 py-1 rounded border border-border text-foreground hover:bg-accent/50"
-            >
-              Reset
-            </button>
-          </div>
-
+          
           <div
-            className="h-[70vh] overflow-hidden border border-border rounded-md bg-background"
+            className={`h-[70vh] overflow-hidden border border-border rounded-md bg-background ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onDoubleClick={resetView}
             role="presentation"
           >
             {renderedSvg ? (
               <div
                 className="flex items-center justify-center w-full h-full"
-                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center" }}
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "center center",
+                }}
                 dangerouslySetInnerHTML={{ __html: renderedSvg }}
               />
             ) : (
-              <div className="text-sm text-muted-foreground p-6">Rendering diagram...</div>
+              <div className="text-sm text-muted-foreground p-6">
+                Rendering diagram...
+              </div>
             )}
           </div>
         </DialogContent>

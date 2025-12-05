@@ -5,15 +5,17 @@ Identifies backtracking and state restoration patterns.
 
 from typing import Any, Dict, List
 
-from app.domain.models.ast import Assignment, FuncCallExpr, IfElse, Program, SubroutineDef
+from app.domain.models.ast import (Assignment, FuncCallExpr, IfElse, Program,
+                                   SubroutineDef)
 from app.domain.services.pattern_detectors.base_detector import PatternDetector
-from app.domain.services.pattern_detectors.recursion_detector import RecursionPatternDetector
+from app.domain.services.pattern_detectors.recursion_detector import \
+    RecursionPatternDetector
 
 
 class BacktrackingPatternDetector(PatternDetector):
     """
     Detects backtracking algorithm patterns.
-    Looks for recursion with state restoration (undo operations).
+    Looks for multiple recursive calls and state restoration.
     """
 
     def detect(self, node: Any) -> Dict[str, Any]:
@@ -45,20 +47,34 @@ class BacktrackingPatternDetector(PatternDetector):
             result["has_state_restoration"] = True
             result["has_backtracking"] = True
 
-    def _find_recursive_calls(self, body: List[Any], func_name: str) -> List[FuncCallExpr]:
+    def _find_recursive_calls(
+        self, body: List[Any], func_name: str
+    ) -> List[FuncCallExpr]:
         calls: List[FuncCallExpr] = []
         for stmt in body:
             if isinstance(stmt, FuncCallExpr) and stmt.name == func_name:
                 calls.append(stmt)
-            if isinstance(stmt, Assignment) and isinstance(stmt.value, FuncCallExpr) and stmt.value.name == func_name:
+            if (
+                isinstance(stmt, Assignment)
+                and isinstance(stmt.value, FuncCallExpr)
+                and stmt.value.name == func_name
+            ):
                 calls.append(stmt.value)
             if hasattr(stmt, "cond"):
-                calls.extend(self._extract_calls_from_expr(getattr(stmt, "cond"), func_name))
+                calls.extend(
+                    self._extract_calls_from_expr(getattr(stmt, "cond"), func_name)
+                )
             if isinstance(stmt, IfElse):
                 calls.extend(self._find_recursive_calls(stmt.then_branch, func_name))
-                calls.extend(self._find_recursive_calls(getattr(stmt, "else_branch", []), func_name))
+                calls.extend(
+                    self._find_recursive_calls(
+                        getattr(stmt, "else_branch", []), func_name
+                    )
+                )
             if hasattr(stmt, "body"):
-                calls.extend(self._find_recursive_calls(getattr(stmt, "body"), func_name))
+                calls.extend(
+                    self._find_recursive_calls(getattr(stmt, "body"), func_name)
+                )
         return calls
 
     def _extract_calls_from_expr(self, expr: Any, func_name: str) -> List[FuncCallExpr]:
@@ -87,9 +103,13 @@ class BacktrackingPatternDetector(PatternDetector):
                 if key in seen_targets:
                     return True
                 seen_targets.add(key)
-            if hasattr(stmt, "body") and self._has_state_restoration(getattr(stmt, "body")):
+            if hasattr(stmt, "body") and self._has_state_restoration(
+                getattr(stmt, "body")
+            ):
                 return True
             if isinstance(stmt, IfElse):
-                if self._has_state_restoration(stmt.then_branch) or self._has_state_restoration(getattr(stmt, "else_branch", [])):
+                if self._has_state_restoration(
+                    stmt.then_branch
+                ) or self._has_state_restoration(getattr(stmt, "else_branch", [])):
                     return True
         return False

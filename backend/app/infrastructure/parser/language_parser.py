@@ -1,4 +1,6 @@
-"""High-level parser facade that returns fully transformed ASTs with diagnostics."""
+"""
+Module implementing the language parser that converts source code into an Abstract Syntax Tree (AST).
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -8,10 +10,8 @@ from lark import LarkError
 
 from app.domain.models.ast import Program
 from app.infrastructure.parser.lark_parser import LarkParser
-from app.infrastructure.parser.preprocessor import (
-    ParserWarning,
-    PseudocodeNormalizer,
-)
+from app.infrastructure.parser.preprocessor import (ParserWarning,
+                                                    PseudocodeNormalizer)
 from app.infrastructure.parser.transformer import ASTTransformer
 from app.shared.exceptions import ParsingError
 from app.shared.file_reader import FileReader
@@ -58,9 +58,6 @@ class LanguageParser(ILanguageParser):
     """
 
     def __init__(self):
-        """
-        Initializes the components needed for parsing.
-        """
         self._file_reader = FileReader()
         self._lark_parser = LarkParser()
         self._transformer = ASTTransformer()
@@ -69,15 +66,6 @@ class LanguageParser(ILanguageParser):
     def parse(self, code: str) -> ParserResult:
         """
         Parse code and return the AST.
-
-        Args:
-            code: Source code string to parse
-
-        Returns:
-            Program AST node containing the parsed structure
-
-        Raises:
-            ParsingError: If parsing or transformation fails
         """
         preprocessed = self._normalizer.normalize(code)
 
@@ -101,15 +89,6 @@ class LanguageParser(ILanguageParser):
     def parse_file(self, file_path: str) -> ParserResult:
         """
         Parse a file and return the AST.
-
-        Args:
-            file_path: Path to the source code file
-
-        Returns:
-            Program AST node containing the parsed structure
-
-        Raises:
-            ParsingError: If file reading or parsing fails
         """
         try:
             code = self._file_reader.read_file(file_path)

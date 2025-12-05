@@ -1,7 +1,5 @@
 """Use cases for storing and retrieving analysis outputs."""
 
-from __future__ import annotations
-
 from typing import Optional
 
 from app.domain.models.analysis import AnalysisResult

@@ -18,32 +18,33 @@ class RecurrenceSolver:
 
     def __init__(self) -> None:
         self.n = symbols("n", positive=True, integer=True)
+        self._epsilon = 1e-9
 
     def solve_recurrence(self, a: int, b: int, k: int) -> Tuple[str, Dict[str, Any]]:
         """
         Solve recurrence T(n) = aT(n/b) + n^k using Master Theorem.
-
-        Returns:
-            Tuple of (complexity_notation, detailed_analysis_dictionary)
         """
         log_b_a = sp.log(a, b)
         log_b_a_float = float(sp.N(log_b_a, 5))
         epsilon = 1e-6
+        base_term = self._format_power_term(k)
+        recurrence_term = self._format_theta_term(k)
 
         if abs(k - log_b_a_float) < epsilon:
-            complexity = f"O(n^{k} log n)"
-            worst_case = f"O(n^{k} log n)"
-            best_case = f"O(n^{k} log n)"
+            complexity = self._format_big_o_with_log(base_term)
+            worst_case = complexity
+            best_case = complexity
             case = 2
             reasoning = (
                 f"Case 2: k={k} ≈ log_{b}({a}) = {log_b_a_float:.3f}. "
                 f"Work is balanced across all {sp.ceiling(sp.log(self.n, b))} levels, "
-                f"each contributing Θ(n^{k}), leading to logarithmic multiplication."
+                f"each contributing Θ({recurrence_term}), leading to logarithmic multiplication."
             )
         elif k < log_b_a_float:
-            complexity = f"O(n^{log_b_a_float:.2f})"
-            worst_case = f"O(n^{log_b_a_float:.2f})"
-            best_case = f"O(n^{log_b_a_float:.2f})"
+            dom_term = self._format_power_term(log_b_a_float)
+            complexity = f"O({dom_term})"
+            worst_case = complexity
+            best_case = complexity
             case = 1
             reasoning = (
                 f"Case 1: k={k} < log_{b}({a}) = {log_b_a_float:.3f}. "
@@ -51,19 +52,19 @@ class RecurrenceSolver:
                 f"leaf-level work dominates the total cost."
             )
         else:
-            complexity = f"O(n^{k})"
-            worst_case = f"O(n^{k})"
-            best_case = f"O(n^{k})"
+            complexity = f"O({base_term})"
+            worst_case = complexity
+            best_case = complexity
             case = 3
             reasoning = (
                 f"Case 3: k={k} > log_{b}({a}) = {log_b_a_float:.3f}. "
-                f"Work at the root level dominates. The combine step of Θ(n^{k}) "
+                f"Work at the root level dominates. The combine step of Θ({recurrence_term}) "
                 f"exceeds the cost of solving subproblems."
             )
 
         analysis = {
             "technique": "master_theorem",
-            "recurrence": f"T(n) = {a}T(n/{b}) + Θ(n^{k})",
+            "recurrence": f"T(n) = {a}T(n/{b}) + Θ({recurrence_term})",
             "a": a,
             "b": b,
             "k": k,
@@ -74,7 +75,7 @@ class RecurrenceSolver:
             "best_case": best_case,
             "reasoning": reasoning,
             "levels": f"log_{b}(n)",
-            "work_per_level": "Varies by case",
+            "work_per_level": recurrence_term,
         }
 
         return complexity, analysis
@@ -114,7 +115,9 @@ class RecurrenceSolver:
                 complexity = "Unable to solve"
                 worst_case = "Unknown"
                 best_case = "Unknown"
-                reasoning = "SymPy could not find a closed-form solution for this recurrence"
+                reasoning = (
+                    "SymPy could not find a closed-form solution for this recurrence"
+                )
 
             analysis = {
                 "technique": "recurrence_solving",
@@ -130,7 +133,7 @@ class RecurrenceSolver:
 
             return complexity, analysis
 
-        except Exception as e:  # pragma: no cover - log and propagate friendly response
+        except Exception as e:
             logger.error(f"Error solving recurrence '{relation}': {e}")
             return None, {
                 "technique": "recurrence_solving",
@@ -186,7 +189,10 @@ class RecurrenceSolver:
             f_n_str = match.group(3)
             f_n = self._safe_parse_function(f_n_str, n)
             equation = sp.Eq(T(n), a * T(n / b) + f_n)
-            return {"equation": equation, "normalized": f"T(n) = {a}T(n/{b}) + {f_n_str}"}
+            return {
+                "equation": equation,
+                "normalized": f"T(n) = {a}T(n/{b}) + {f_n_str}",
+            }
 
         return None
 
@@ -196,3 +202,35 @@ class RecurrenceSolver:
             return sp.sympify(f_n_str, locals={"n": n, "log": sp.log})
         except Exception:
             return sp.Symbol("f(n)")
+
+    def _format_power_term(self, exponent: float) -> str:
+        """Render n^k without showing exponent 1 or 0."""
+
+        if exponent is None:
+            return "n"
+
+        if abs(exponent) < self._epsilon:
+            return "1"
+
+        if abs(exponent - 1) < self._epsilon:
+            return "n"
+
+        rounded = round(exponent)
+        if abs(exponent - rounded) < self._epsilon:
+            return f"n^{int(rounded)}"
+
+        value = f"n^{exponent:.2f}"
+        if "." in value:
+            base, frac = value.split(".")
+            frac = frac.rstrip("0")
+            value = base if not frac else f"{base}.{frac}"
+        return value
+
+    def _format_theta_term(self, exponent: float) -> str:
+        term = self._format_power_term(exponent)
+        return "n" if term == "1" else term
+
+    def _format_big_o_with_log(self, base_term: str) -> str:
+        if base_term == "1":
+            return "O(log n)"
+        return f"O({base_term} log n)"

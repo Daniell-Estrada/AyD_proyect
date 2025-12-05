@@ -29,14 +29,6 @@ class LLMAnalysisStrategy(ComplexityAnalysisStrategy):
         state: AgentState,
         complexity_service: Optional[ComplexityAnalysisService] = None,
     ):
-        """
-        Initialize LLM-based analysis strategy.
-
-        Args:
-            llm_service: Service for invoking language models
-            state: Current agent state for metric tracking
-            complexity_service: Optional service for deterministic analysis guidance
-        """
         self._llm_service = llm_service
         self._state = state
         self._complexity_service = complexity_service or ComplexityAnalysisService()
@@ -88,20 +80,7 @@ class LLMAnalysisStrategy(ComplexityAnalysisStrategy):
     ) -> Dict[str, Any]:
         """
         Run deterministic complexity analysis to guide LLM.
-
-        This baseline provides:
-            - Loop-based complexity estimates
-            - Recurrence detection and Master Theorem application
-            - Pattern-based heuristics
-
-        Args:
-            ast_dict: Abstract Syntax Tree dictionary
-            patterns: Detected algorithmic patterns
-
-        Returns:
-            Dictionary with deterministic analysis results
         """
-        from app.domain.models.ast import Program
 
         results = {
             "complexities": {},
@@ -174,48 +153,48 @@ class LLMAnalysisStrategy(ComplexityAnalysisStrategy):
             System prompt string with role and format instructions
         """
         return """You are an expert algorithm complexity analyst with deep knowledge of:
-- Asymptotic analysis (Big-O, Omega, Theta notation)
-- Master Theorem and recurrence relations
-- Loop analysis and amortized analysis
-- Advanced algorithmic paradigms
+            - Asymptotic analysis (Big-O, Omega, Theta notation)
+        - Master Theorem and recurrence relations
+        - Loop analysis and amortized analysis
+        - Advanced algorithmic paradigms
 
-**CRITICAL**: You will receive DETERMINISTIC ANALYSIS RESULTS as guidance context.
-These results are NOT absolute truth but serve as baseline reference points.
+        **CRITICAL**: You will receive DETERMINISTIC ANALYSIS RESULTS as guidance context.
+        These results are NOT absolute truth but serve as baseline reference points.
 
-Your task:
-1. Review the deterministic analysis provided
-2. Conduct your own independent complexity analysis
-3. Validate, critique, or enhance the deterministic results
-4. Provide rigorous mathematical justification
-5. Note where you agree/disagree with deterministic baseline
+        Your task:
+        1. Review the deterministic analysis provided
+        2. Conduct your own independent complexity analysis
+        3. Validate, critique, or enhance the deterministic results
+        4. Provide rigorous mathematical justification
+        5. Note where you agree/disagree with deterministic baseline
 
-Analyze the given algorithm and provide complexity analysis for:
-- Worst case (Big-O)
-- Best case (Omega)
-- Average case (Theta)
-- Tight bounds if applicable
+        Analyze the given algorithm and provide complexity analysis for:
+        - Worst case (Big-O)
+        - Best case (Omega)
+        - Average case (Theta)
+        - Tight bounds if applicable
 
-**Output Format (JSON):**
-```json
-{
-  "worst_case": "O(...)",
-  "best_case": "Ω(...)",
-  "average_case": "Θ(...)",
-  "tight_bounds": "...",
-  "deterministic_agreement": "agree|disagree|partial",
-  "deterministic_critique": "Your assessment of the baseline analysis",
-  "analysis_steps": [
-    {
-      "step": "Step description",
-      "technique": "technique_used",
-      "reasoning": "Detailed reasoning",
-      "deterministic_comparison": "How this compares to baseline"
-    }
-  ]
-}
-```
+        **Output Format (JSON):**
+        ```json
+        {
+          "worst_case": "O(...)",
+          "best_case": "Ω(...)",
+          "average_case": "Θ(...)",
+          "tight_bounds": "...",
+          "deterministic_agreement": "agree|disagree|partial",
+          "deterministic_critique": "Your assessment of the baseline analysis",
+          "analysis_steps": [
+            {
+              "step": "Step description",
+              "technique": "technique_used",
+              "reasoning": "Detailed reasoning",
+              "deterministic_comparison": "How this compares to baseline"
+            }
+          ]
+        }
+        ```
 
-Provide rigorous mathematical justification and clearly indicate your confidence level."""
+        Provide rigorous mathematical justification and clearly indicate your confidence level."""
 
     def _build_user_prompt_with_guidance(
         self,

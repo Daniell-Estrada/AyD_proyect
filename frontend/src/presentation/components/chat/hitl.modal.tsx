@@ -18,11 +18,10 @@ export default function HitlModal({
   );
   const [jsonError, setJsonError] = useState("");
 
-  // Safely render reasoning, handling both string and object types
   const renderReasoning = () => {
     const reasoning = hitlRequest.reasoning;
-    if (!reasoning) return 'No reasoning provided';
-    if (typeof reasoning === 'string') return reasoning;
+    if (!reasoning) return "No reasoning provided";
+    if (typeof reasoning === "string") return reasoning;
     return JSON.stringify(reasoning, null, 2);
   };
 

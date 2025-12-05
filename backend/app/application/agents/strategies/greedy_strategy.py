@@ -6,7 +6,8 @@ Analyzes greedy choice patterns, sorting requirements, and approximation ratios.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.application.agents.strategies.base_strategy import ComplexityAnalysisStrategy
+from app.application.agents.strategies.base_strategy import \
+    ComplexityAnalysisStrategy
 from app.domain.services.complexity_service import ComplexityAnalysisService
 
 logger = logging.getLogger(__name__)
@@ -17,16 +18,13 @@ class GreedyAnalysisStrategy(ComplexityAnalysisStrategy):
     Analyzes greedy algorithms by identifying sorting steps,
     greedy choice selection iterations, and approximation characteristics.
     """
-    
+
     def __init__(
-        self, 
+        self,
         complexity_service: Optional[ComplexityAnalysisService] = None,
         llm_service=None,
         enable_llm_peer_review: bool = False,
     ):
-        """
-        Initialize greedy analysis strategy.
-        """
         self._complexity_service = complexity_service or ComplexityAnalysisService()
         self._llm_service = llm_service
         self._enable_llm_peer_review = enable_llm_peer_review
@@ -178,7 +176,9 @@ class GreedyAnalysisStrategy(ComplexityAnalysisStrategy):
         self, ast_dict: Dict[str, Any], patterns: Dict[str, Any]
     ) -> Tuple[bool, List[str]]:
         if "has_sorting" in patterns and "sorting_calls" in patterns:
-            return bool(patterns.get("has_sorting")), list(patterns.get("sorting_calls", []))
+            return bool(patterns.get("has_sorting")), list(
+                patterns.get("sorting_calls", [])
+            )
 
         calls: List[str] = []
 

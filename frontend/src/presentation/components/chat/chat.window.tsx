@@ -20,7 +20,9 @@ function HitlActionSection({
   onHitlEdit,
   onHitlRecommend,
 }: HitlActionSectionProps) {
-  const [mode, setMode] = useState<"idle" | "deny" | "edit" | "recommend">("idle");
+  const [mode, setMode] = useState<"idle" | "deny" | "edit" | "recommend">(
+    "idle",
+  );
   const [feedback, setFeedback] = useState("");
   const [recommendation, setRecommendation] = useState("");
   const [editedOutput, setEditedOutput] = useState<string>(() => {
@@ -106,13 +108,6 @@ function HitlActionSection({
         >
           Editar
         </button>
-        <button
-          type="button"
-          onClick={() => setMode(mode === "recommend" ? "idle" : "recommend")}
-          className="text-amber-400 hover:text-amber-300"
-        >
-          Recomendar
-        </button>
       </div>
 
       {mode === "deny" && (
@@ -143,7 +138,10 @@ function HitlActionSection({
       {mode === "edit" && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Ajusta la salida {typeof hitlRequest.output === "string" ? "como texto" : "en formato JSON"}
+            Ajusta la salida{" "}
+            {typeof hitlRequest.output === "string"
+              ? "como texto"
+              : "en formato JSON"}
           </p>
           <Textarea
             value={editedOutput}
@@ -407,7 +405,9 @@ export default function ChatWindow({
         : undefined;
 
     const retryReason =
-      metadata.retry_reason || metadata.analysis_retry_reason || metadata.retryReason;
+      metadata.retry_reason ||
+      metadata.analysis_retry_reason ||
+      metadata.retryReason;
 
     if (!reasoningValue && !outputValue) return null;
 
@@ -543,98 +543,100 @@ export default function ChatWindow({
                 key={message.id}
                 className={`flex gap-3 ${message.type === "user" ? "justify-end" : "justify-start"}`}
               >
-              {message.type !== "user" && (
-                <div
-                  className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                    message.type === "agent"
-                      ? "bg-blue-500/20 text-blue-400"
-                      : message.type === "hitl"
-                        ? "bg-amber-500/20 text-amber-400"
-                        : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {getMessageIcon(message.type)}
-                </div>
-              )}
+                {message.type !== "user" && (
+                  <div
+                    className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                      message.type === "agent"
+                        ? "bg-blue-500/20 text-blue-400"
+                        : message.type === "hitl"
+                          ? "bg-amber-500/20 text-amber-400"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {getMessageIcon(message.type)}
+                  </div>
+                )}
 
                 <div
                   className={`flex flex-col max-w-[75%] ${message.type === "user" ? "items-end" : "items-start"}`}
                 >
-                {message.agent_name && (
-                  <span className="text-xs text-muted-foreground mb-1 px-1">
-                    {message.agent_name}
-                  </span>
-                )}
-
-                <Card className={`px-0 py-0 border-0 shadow-none ${getMessageStyle(message.type)}`}>
-                  {message.type === "hitl" ? (
-                    <HitlContent
-                      metadata={message.metadata}
-                      isActive={Boolean(isActiveHitl)}
-                      pendingHitl={pendingHitl}
-                      onHitlApprove={onHitlApprove}
-                      onHitlDeny={onHitlDeny}
-                      onHitlEdit={onHitlEdit}
-                      onHitlRecommend={onHitlRecommend}
-                    />
-                  ) : (
-                    <>
-                      <MarkdownRenderer content={message.content} />
-                      {message.type === "agent" &&
-                        renderAgentDetails(message.metadata)}
-                    </>
+                  {message.agent_name && (
+                    <span className="text-xs text-muted-foreground mb-1 px-1">
+                      {message.agent_name}
+                    </span>
                   )}
 
-                  {(() => {
-                    const costValue = resolveMetric(message.metadata, [
-                      "cost_usd",
-                      "total_cost_usd",
-                    ]);
-                    const tokenValue = resolveMetric(message.metadata, [
-                      "tokens",
-                      "total_tokens",
-                    ]);
-                    const durationValue = resolveMetric(message.metadata, [
-                      "duration_ms",
-                      "total_duration_ms",
-                    ]);
+                  <Card
+                    className={`px-0 py-0 border-0 shadow-none ${getMessageStyle(message.type)}`}
+                  >
+                    {message.type === "hitl" ? (
+                      <HitlContent
+                        metadata={message.metadata}
+                        isActive={Boolean(isActiveHitl)}
+                        pendingHitl={pendingHitl}
+                        onHitlApprove={onHitlApprove}
+                        onHitlDeny={onHitlDeny}
+                        onHitlEdit={onHitlEdit}
+                        onHitlRecommend={onHitlRecommend}
+                      />
+                    ) : (
+                      <>
+                        <MarkdownRenderer content={message.content} />
+                        {message.type === "agent" &&
+                          renderAgentDetails(message.metadata)}
+                      </>
+                    )}
 
-                    if (
-                      costValue === undefined &&
-                      tokenValue === undefined &&
-                      durationValue === undefined
-                    ) {
-                      return null;
-                    }
+                    {(() => {
+                      const costValue = resolveMetric(message.metadata, [
+                        "cost_usd",
+                        "total_cost_usd",
+                      ]);
+                      const tokenValue = resolveMetric(message.metadata, [
+                        "tokens",
+                        "total_tokens",
+                      ]);
+                      const durationValue = resolveMetric(message.metadata, [
+                        "duration_ms",
+                        "total_duration_ms",
+                      ]);
 
-                    return (
-                      <div className="flex gap-3 mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground flex-wrap">
-                        {costValue !== undefined && (
-                          <span>${costValue.toFixed(4)}</span>
-                        )}
-                        {tokenValue !== undefined && (
-                          <span>{Math.round(tokenValue).toLocaleString()} tokens</span>
-                        )}
-                        {durationValue !== undefined && (
-                          <span>
-                            {(durationValue / 1000).toFixed(1)}s
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </Card>
+                      if (
+                        costValue === undefined &&
+                        tokenValue === undefined &&
+                        durationValue === undefined
+                      ) {
+                        return null;
+                      }
 
-                <span className="text-xs text-muted-foreground mt-1 px-1">
-                  {formatTime(message.timestamp)}
-                </span>
+                      return (
+                        <div className="flex gap-3 mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground flex-wrap">
+                          {costValue !== undefined && (
+                            <span>${costValue.toFixed(4)}</span>
+                          )}
+                          {tokenValue !== undefined && (
+                            <span>
+                              {Math.round(tokenValue).toLocaleString()} tokens
+                            </span>
+                          )}
+                          {durationValue !== undefined && (
+                            <span>{(durationValue / 1000).toFixed(1)}s</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </Card>
+
+                  <span className="text-xs text-muted-foreground mt-1 px-1">
+                    {formatTime(message.timestamp)}
+                  </span>
                 </div>
 
-              {message.type === "user" && (
-                <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
-                  <User className="h-5 w-5" />
-                </div>
-              )}
+                {message.type === "user" && (
+                  <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
+                    <User className="h-5 w-5" />
+                  </div>
+                )}
               </div>
             );
           })}

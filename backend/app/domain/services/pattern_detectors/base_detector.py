@@ -17,11 +17,4 @@ class PatternDetector(ABC):
     def detect(self, node: Any) -> Dict[str, Any]:
         """
         Detect specific patterns in the given AST node.
-
-        Args:
-            node: AST node to analyze
-
-        Returns:
-            Dictionary containing detected pattern information
-            Keys and values depend on specific detector implementation
         """

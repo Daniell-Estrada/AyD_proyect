@@ -14,23 +14,17 @@ logger = logging.getLogger(__name__)
 class AgentNodeHandler:
     """
     Handles agent node execution with standardized event emission.
-    
     Provides reusable execution wrapper for all agent nodes,
-    ensuring consistent logging, error handling, and event callbacks.
+    centralizing start/completion events and error handling.
     """
 
     def __init__(
         self,
-        event_callback: Optional[Callable[[str, str, str, Dict[str, Any]], None]] = None,
+        event_callback: Optional[
+            Callable[[str, str, str, Dict[str, Any]], None]
+        ] = None,
         state_recorder: Optional[Callable[[str, AgentState], None]] = None,
     ):
-        """
-        Initialize agent node handler.
-
-        Args:
-            event_callback: Optional callback invoked when agent stages start/finish.
-                           Signature: (stage, agent_name, status, payload) -> None
-        """
         self._event_callback = event_callback
         self._state_recorder = state_recorder
 
@@ -45,20 +39,7 @@ class AgentNodeHandler:
     ) -> AgentState:
         """
         Execute agent with event emission and error handling.
-
-        Emits STARTED event before execution and COMPLETED/FAILED after.
-        Handles exceptions and records errors in state.
-
-        Args:
-            stage: Workflow stage name (e.g., "translation", "analysis")
-            agent_name: Name of agent being executed
-            agent_fn: Agent execution function
-            state: Current workflow state
-
-        Returns:
-            Updated state after agent execution
         """
-        # Emit started event
         baseline_cost = state.get("total_cost_usd", 0.0)
         baseline_tokens = state.get("total_tokens", 0)
         baseline_duration = state.get("total_duration_ms", 0.0)
@@ -77,24 +58,19 @@ class AgentNodeHandler:
         )
 
         try:
-            # Execute agent
             updated_state = agent_fn(state)
 
-            # Optional one-shot auto-retry if the agent flagged inconsistency
-            if (
-                updated_state.get("auto_retry_agent")
-                and not updated_state.get("auto_retry_performed")
+            if updated_state.get("auto_retry_agent") and not updated_state.get(
+                "auto_retry_performed"
             ):
                 retry_limit = updated_state.get("max_retries", 1)
                 current_retries = updated_state.get("retry_count", 0)
                 if current_retries < retry_limit:
                     updated_state["retry_count"] = current_retries + 1
                     updated_state["auto_retry_performed"] = True
-                    # Clear the retry flag to avoid loops
                     updated_state["auto_retry_agent"] = False
                     updated_state = agent_fn(updated_state)
 
-            # Emit completed event
             delta_cost = max(
                 0.0,
                 updated_state.get("total_cost_usd", 0.0) - baseline_cost,
@@ -141,8 +117,9 @@ class AgentNodeHandler:
                         exc,
                     )
 
-            # Include retry reason for frontend/HITL visibility
-            retry_reason = updated_state.get("analysis_retry_reason") or updated_state.get("retry_reason")
+            retry_reason = updated_state.get(
+                "analysis_retry_reason"
+            ) or updated_state.get("retry_reason")
             if retry_reason:
                 completed_payload["retry_reason"] = retry_reason
 
@@ -162,15 +139,12 @@ class AgentNodeHandler:
             return updated_state
 
         except Exception as e:
-            # Log error
             logger.error(f"{agent_name} failed: {e}", exc_info=True)
 
-            # Record error in state
             errors = state.get("errors", [])
             errors.append(f"{agent_name} execution failed: {str(e)}")
             state["errors"] = errors
 
-            # Emit failed event
             failure_payload: Dict[str, Any] = {
                 "session_id": state.get("session_id"),
                 "stage": stage,
@@ -194,12 +168,6 @@ class AgentNodeHandler:
     ) -> None:
         """
         Emit event through callback if configured.
-
-        Args:
-            stage: Workflow stage name
-            agent_name: Name of agent
-            status: Event status (started, completed, failed)
-            payload: Additional event data
         """
         if self._event_callback:
             try:

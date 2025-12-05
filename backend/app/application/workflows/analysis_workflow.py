@@ -1,8 +1,5 @@
 """
-LangGraph Workflow for Multi-Agent Complexity Analysis.
-Orchestrates agents: Translator -> Parser -> Classifier -> Analyzer -> Validator -> Documenter
-Includes Human-in-the-Loop (HITL) checkpoints and event emission hooks.
-Refactored using Handler pattern for cleaner node management.
+Analysis Workflow orchestrating multiple agents with Human-in-the-Loop checkpoints.
 """
 
 import logging
@@ -17,15 +14,15 @@ from app.application.agents.parser_agent import ParserAgent
 from app.application.agents.state import AgentState
 from app.application.agents.translator import TranslatorAgent
 from app.application.agents.validator import ValidatorAgent
-from app.application.workflows.handlers.agent_node_handler import AgentNodeHandler
-from app.application.workflows.handlers.hitl_node_handler import HitlNodeHandler
+from app.application.workflows.handlers.agent_node_handler import \
+    AgentNodeHandler
+from app.application.workflows.handlers.hitl_node_handler import \
+    HitlNodeHandler
 from app.domain.services.complexity_service import ComplexityAnalysisService
 from app.domain.services.diagram_service import DiagramService
 from app.infrastructure.llm.llm_service import LLMService
 from app.infrastructure.workflows.state_store import (
-    WorkflowStateStore,
-    create_workflow_state_store,
-)
+    WorkflowStateStore, create_workflow_state_store)
 from app.shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -41,24 +38,15 @@ class AnalysisWorkflow:
     def __init__(
         self,
         hitl_callback: Optional[Callable[[str, str, Any, str], Dict[str, Any]]] = None,
-        event_callback: Optional[Callable[[str, str, str, Dict[str, Any]], None]] = None,
+        event_callback: Optional[
+            Callable[[str, str, str, Dict[str, Any]], None]
+        ] = None,
     ):
-        """
-        Initialize Analysis Workflow.
-
-        Args:
-            hitl_callback: Optional callback for HITL requests.
-                           Signature: (stage, agent_name, output, reasoning) -> {action, feedback, edited_output}
-            event_callback: Optional callback invoked when agent stages start/finish.
-                             Signature: (stage, agent_name, status, payload) -> None
-        """
-        # Initialize services
         self.llm_service = LLMService()
         self.complexity_service = ComplexityAnalysisService()
         self.diagram_service = DiagramService()
         self.state_store: WorkflowStateStore = create_workflow_state_store()
 
-        # Initialize agents
         self.translator = TranslatorAgent(self.llm_service)
         self.parser = ParserAgent()
         self.classifier = ClassifierAgent(
@@ -79,7 +67,6 @@ class AnalysisWorkflow:
             self.diagram_service,
         )
 
-        # Initialize handlers
         self._agent_handler = AgentNodeHandler(
             event_callback=event_callback,
             state_recorder=self._record_state_snapshot,
@@ -93,14 +80,12 @@ class AnalysisWorkflow:
         self.enable_hitl = settings.enable_hitl
         self.event_callback = event_callback
 
-        # Build workflow graph
         self.graph = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
         """Build LangGraph state graph."""
         workflow = StateGraph(AgentState)
 
-        # Add nodes for each agent
         workflow.add_node("translator", self._translator_node)
         workflow.add_node("parser", self._parser_node)
         workflow.add_node("classifier", self._classifier_node)
@@ -108,30 +93,26 @@ class AnalysisWorkflow:
         workflow.add_node("validator", self._validator_node)
         workflow.add_node("documenter", self._documenter_node)
 
-        # Add HITL nodes
         if self.enable_hitl:
             workflow.add_node("hitl_translation", self._hitl_translation_node)
             workflow.add_node("hitl_classification", self._hitl_classification_node)
             workflow.add_node("hitl_analysis", self._hitl_analysis_node)
             workflow.add_node("hitl_validation", self._hitl_validation_node)
 
-        # Define edges
         workflow.set_entry_point("translator")
 
         if self.enable_hitl:
-            # Translation -> HITL -> Parser
             workflow.add_edge("translator", "hitl_translation")
             workflow.add_conditional_edges(
                 "hitl_translation",
                 self._check_hitl_approval,
                 {
                     "approved": "parser",
-                    "denied": "translator",  # Retry
+                    "denied": "translator",
                     "edited": "parser",
                 },
             )
 
-            # Parser -> Classifier -> HITL
             workflow.add_edge("parser", "classifier")
             workflow.add_edge("classifier", "hitl_classification")
             workflow.add_conditional_edges(
@@ -144,7 +125,6 @@ class AnalysisWorkflow:
                 },
             )
 
-            # Analyzer -> HITL -> Validator
             workflow.add_edge("analyzer", "hitl_analysis")
             workflow.add_conditional_edges(
                 "hitl_analysis",
@@ -156,7 +136,6 @@ class AnalysisWorkflow:
                 },
             )
 
-            # Validator -> HITL -> Documenter
             workflow.add_edge("validator", "hitl_validation")
             workflow.add_conditional_edges(
                 "hitl_validation",
@@ -168,19 +147,15 @@ class AnalysisWorkflow:
                 },
             )
         else:
-            # Direct edges without HITL
             workflow.add_edge("translator", "parser")
             workflow.add_edge("parser", "classifier")
             workflow.add_edge("classifier", "analyzer")
             workflow.add_edge("analyzer", "validator")
             workflow.add_edge("validator", "documenter")
 
-        # End after documenter
         workflow.add_edge("documenter", END)
 
         return workflow.compile()
-
-    # ===== Agent Nodes =====
 
     def _translator_node(self, state: AgentState) -> AgentState:
         """Execute Translator agent node."""
@@ -270,8 +245,6 @@ class AnalysisWorkflow:
             ),
         )
 
-    # ===== HITL Nodes =====
-
     def _hitl_translation_node(self, state: AgentState) -> AgentState:
         """HITL checkpoint after translation."""
         return self._hitl_handler.request_review(
@@ -294,7 +267,6 @@ class AnalysisWorkflow:
 
     def _hitl_analysis_node(self, state: AgentState) -> AgentState:
         """HITL checkpoint after analysis."""
-        # Build complexity summary for review
         complexities = {
             "worst_case": state.get("complexity_worst_case"),
             "best_case": state.get("complexity_best_case"),
@@ -314,13 +286,14 @@ class AnalysisWorkflow:
 
     def _hitl_validation_node(self, state: AgentState) -> AgentState:
         """HITL checkpoint after validation."""
-        # Build validation summary for review
         validation_summary = {
             "passed": state.get("validation_passed", False),
             "issues": state.get("validation_issues", []),
+            "results": state.get("validation_results", {}),
         }
         state["_validation_summary"] = validation_summary
-        
+        state["validation_reasoning"] = validation_summary["results"]
+
         return self._hitl_handler.request_review(
             stage="validation",
             agent_name="ValidatorAgent",
@@ -328,8 +301,6 @@ class AnalysisWorkflow:
             output_key="_validation_summary",
             reasoning_key="validation_reasoning",
         )
-
-    # ===== Conditional Routing =====
 
     def _check_hitl_approval(self, state: AgentState) -> str:
         """
@@ -402,22 +373,12 @@ class AnalysisWorkflow:
 
         return {}
 
-    # ===== Execution =====
-
     def run(self, user_input: str, session_id: str) -> Dict[str, Any]:
         """
         Run the complete analysis workflow.
-
-        Args:
-            user_input: User's algorithm description or pseudocode
-            session_id: Unique session identifier
-
-        Returns:
-            Final analysis results
         """
         logger.info(f"Starting workflow for session: {session_id}")
 
-        # Initialize state
         initial_state: AgentState = {
             "session_id": session_id,
             "user_input": user_input,
@@ -463,7 +424,6 @@ class AnalysisWorkflow:
         self._record_state_snapshot("initialization", initial_state)
 
         try:
-            # Execute workflow
             final_state = self.graph.invoke(initial_state)
             self._record_state_snapshot("completed", final_state)
 
@@ -493,7 +453,7 @@ class AnalysisWorkflow:
 
         try:
             self.state_store.save_state(session_id, stage, state)
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except Exception as exc:
             logger.warning(
                 "Failed to persist workflow state for %s at stage %s: %s",
                 session_id,

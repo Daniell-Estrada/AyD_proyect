@@ -29,33 +29,40 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
     ? result.paradigm
     : null;
 
-  const paradigmName = paradigmDescriptor?.name ?? String(result.paradigm ?? "");
+  const paradigmName =
+    paradigmDescriptor?.name ?? String(result.paradigm ?? "");
   const paradigmLabel = paradigmName
     ? paradigmName.replace(/_/g, " ").toUpperCase()
     : "";
   const paradigmConfidence = paradigmDescriptor?.confidence;
-  const paradigmReasoning = paradigmDescriptor?.reasoning;
+  const paradigmReasoning =
+    paradigmDescriptor?.reasoning ??
+    (typeof result.metadata?.paradigm_reasoning === "string"
+      ? result.metadata?.paradigm_reasoning
+      : undefined);
+
+  const metricSource = result.metrics ?? result.metadata ?? {};
 
   const totalCost =
-    typeof result.metadata?.total_cost_usd === "number"
-      ? result.metadata.total_cost_usd
-      : typeof result.metadata?.cost_usd === "number"
-        ? result.metadata.cost_usd
-        : 0;
+    typeof metricSource?.total_cost_usd === "number"
+      ? metricSource.total_cost_usd
+      : typeof metricSource?.cost_usd === "number"
+        ? metricSource.cost_usd
+        : null;
 
   const totalTokens =
-    typeof result.metadata?.total_tokens === "number"
-      ? result.metadata.total_tokens
-      : typeof result.metadata?.tokens === "number"
-        ? result.metadata.tokens
-        : 0;
+    typeof metricSource?.total_tokens === "number"
+      ? metricSource.total_tokens
+      : typeof metricSource?.tokens === "number"
+        ? metricSource.tokens
+        : null;
 
   const totalDurationMs =
-    typeof result.metadata?.total_duration_ms === "number"
-      ? result.metadata.total_duration_ms
-      : typeof result.metadata?.duration_ms === "number"
-        ? result.metadata.duration_ms
-        : 0;
+    typeof metricSource?.total_duration_ms === "number"
+      ? metricSource.total_duration_ms
+      : typeof metricSource?.duration_ms === "number"
+        ? metricSource.duration_ms
+        : null;
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections);
@@ -149,16 +156,6 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
                 </code>
               </div>
             )}
-            {result.complexity.tight_bounds && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  Tight Bounds:
-                </span>
-                <code className="text-sm font-mono font-semibold text-purple-400">
-                  {result.complexity.tight_bounds}
-                </code>
-              </div>
-            )}
           </div>
         )}
       </Card>
@@ -181,41 +178,66 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
           </button>
 
           {isExpanded("steps") && (
-            <div className="px-4 pb-4 space-y-3">
-              {result.analysis_steps.map((step, index) => (
-                <Card key={step.step || index} className="p-3 bg-muted/50 border-border">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
-                      {step.step || index + 1}
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <p className="text-sm font-medium text-foreground mb-1">
-                        {String(step.technique || 'Unknown')}
-                      </p>
-                      {step.description && (
-                        <p className="text-xs text-muted-foreground mb-2 break-words">
-                          {String(step.description)}
-                        </p>
-                      )}
-                      {step.result && (
-                        <div className="bg-background/60 border border-border rounded-md p-2 overflow-x-auto">
-                          <code className="text-xs font-mono text-primary whitespace-pre-wrap break-words block">
-                            {typeof step.result === 'string' 
-                              ? step.result 
-                              : JSON.stringify(step.result, null, 2)
-                            }
-                          </code>
+            <div className="px-6 pb-6">
+              <div className="relative grid gap-8">
+                {result.analysis_steps.map((step, index) => {
+                  const stepLabel = step.step || index + 1;
+                  const hasTokens = typeof step.tokens === "number";
+                  const hasCost = typeof step.cost_usd === "number";
+
+                  const isLast = index === result.analysis_steps.length - 1;
+
+                  return (
+                    <div
+                      key={`${step.technique}-${index}`}
+                      className={`relative pl-10 border-l ${isLast ? "border-transparent" : "border-border"}`}
+                    >
+                      <span className="absolute -left-2 top-1 w-4 h-4 rounded-full border-2 border-primary bg-background" />
+                      <div className="rounded-lg border border-border bg-background/70 p-4 shadow-sm">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                            <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary font-semibold">
+                              #{stepLabel}
+                            </span>
+                            <span>{String(step.technique || "Unknown")}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                            {hasTokens && (
+                              <span>
+                                Tokens: {Math.round(step.tokens!).toLocaleString()}
+                              </span>
+                            )}
+                            {hasCost && (
+                              <span>
+                                Cost: ${step.cost_usd!.toFixed(4)}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      {step.explanation && (
-                        <p className="text-xs text-muted-foreground mt-2 break-words">
-                          {String(step.explanation)}
-                        </p>
-                      )}
+                        {step.description && (
+                          <p className="text-sm text-foreground mt-3 leading-relaxed">
+                            {String(step.description)}
+                          </p>
+                        )}
+                        {step.result && (
+                          <div className="mt-3 bg-muted/40 border border-border rounded-md p-3 overflow-x-auto">
+                            <code className="text-xs font-mono text-primary whitespace-pre-wrap break-words block">
+                              {typeof step.result === "string"
+                                ? step.result
+                                : JSON.stringify(step.result, null, 2)}
+                            </code>
+                          </div>
+                        )}
+                        {step.explanation && (
+                          <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+                            {String(step.explanation)}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Card>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           )}
         </Card>
@@ -238,7 +260,10 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
           {isExpanded("diagrams") && (
             <div className="px-4 pb-4 space-y-4">
               {Object.entries(result.diagrams)
-                .filter(([, code]) => typeof code === "string" && code.trim().length > 0)
+                .filter(
+                  ([, code]) =>
+                    typeof code === "string" && code.trim().length > 0,
+                )
                 .map(([type, code]) => (
                   <div key={type}>
                     <h4 className="text-sm font-medium text-foreground mb-2 capitalize">
@@ -278,33 +303,37 @@ export default function ResultsPanel({ result }: ResultsPanelProps) {
         </Card>
       )}
 
-      <Card className="p-4 bg-muted/50 border-border">
-        <div className="grid grid-cols-3 gap-4 text-center">
+      <Card className="p-5 bg-gradient-to-br from-background/80 to-muted/60 border-border">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
           <div>
-            <div className="flex items-center justify-center gap-1 text-muted-foreground mb-1">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs uppercase tracking-wide mb-1">
               <DollarSign className="h-4 w-4" />
-              <span className="text-xs">Cost</span>
+              Cost
             </div>
-            <p className="text-sm font-semibold text-foreground">
-              ${totalCost.toFixed(4)}
+            <p className="text-lg font-semibold text-foreground">
+              {typeof totalCost === "number" ? `$${totalCost.toFixed(4)}` : "—"}
             </p>
           </div>
           <div>
-            <div className="flex items-center justify-center gap-1 text-muted-foreground mb-1">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs uppercase tracking-wide mb-1">
               <Zap className="h-4 w-4" />
-              <span className="text-xs">Tokens</span>
+              Tokens
             </div>
-            <p className="text-sm font-semibold text-foreground">
-              {Math.round(totalTokens).toLocaleString()}
+            <p className="text-lg font-semibold text-foreground">
+              {typeof totalTokens === "number"
+                ? Math.round(totalTokens).toLocaleString()
+                : "—"}
             </p>
           </div>
           <div>
-            <div className="flex items-center justify-center gap-1 text-muted-foreground mb-1">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs uppercase tracking-wide mb-1">
               <Clock className="h-4 w-4" />
-              <span className="text-xs">Duration</span>
+              Duration
             </div>
-            <p className="text-sm font-semibold text-foreground">
-              {(totalDurationMs / 1000).toFixed(1)}s
+            <p className="text-lg font-semibold text-foreground">
+              {typeof totalDurationMs === "number"
+                ? `${(totalDurationMs / 1000).toFixed(1)}s`
+                : "—"}
             </p>
           </div>
         </div>

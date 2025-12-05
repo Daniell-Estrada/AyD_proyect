@@ -3,56 +3,21 @@ Lark Transformer implementation to convert parse trees into AST nodes.
 Handles all grammar constructs including loops, conditionals, recursion, arrays, objects, and graphs.
 """
 
-from typing import Any, List, Optional, Union
+from typing import Any, List, Union
 
-from lark import Token, Transformer
+from lark import Token, Transformer, Tree
 
-from app.domain.models.ast import (
-    AddEdgeFunction,
-    AddNodeFunction,
-    ArrayAccess,
-    ArraySlice,
-    ArrayTarget,
-    ArrayVarDecl,
-    Assignment,
-    BinOp,
-    Bool,
-    CallMethod,
-    CallStmt,
-    CeilFunction,
-    ClassDef,
-    ConcatFunction,
-    FieldAccess,
-    FieldTarget,
-    FloorFunction,
-    ForLoop,
-    ForEachLoop,
-    FuncCallExpr,
-    GraphVarDecl,
-    IfElse,
-    LengthFunction,
-    NeighborsFunction,
-    NewGraph,
-    NewObject,
-    Null,
-    Number,
-    ObjectVarDecl,
-    Parameter,
-    PrintStmt,
-    Program,
-    RepeatUntil,
-    ReturnStmt,
-    String,
-    StrlenFunction,
-    SubroutineDef,
-    SubstringFunction,
-    TupleLiteral,
-    UnOp,
-    Var,
-    VarDecl,
-    VarTarget,
-    WhileLoop,
-)
+from app.domain.models.ast import (AddEdgeFunction, AddNodeFunction,
+                                   ArrayAccess, ArraySlice, ArrayTarget,
+                                   ArrayVarDecl, Assignment, BinOp, Bool,
+                                   CallMethod, CallStmt, ClassDef, FieldAccess,
+                                   FieldTarget, ForEachLoop, ForLoop,
+                                   FuncCallExpr, GraphVarDecl, IfElse,
+                                   NeighborsFunction, NewGraph, NewObject,
+                                   Null, Number, ObjectVarDecl, Parameter,
+                                   Program, RepeatUntil, ReturnStmt, String,
+                                   SubroutineDef, TupleLiteral, UnOp, Var,
+                                   VarDecl, VarTarget, WhileLoop)
 
 
 class ASTTransformer(Transformer):
@@ -61,8 +26,6 @@ class ASTTransformer(Transformer):
     Each method corresponds to a rule in grammar.lark. Lark invokes these
     handlers via reflection, so they may appear unused to static analyzers.
     """
-
-    # ===== Internal Utilities =====
 
     def _assign_position(self, node: Any, token: Token) -> Any:
         """Attach source position metadata to an AST node when available."""
@@ -85,7 +48,19 @@ class ASTTransformer(Transformer):
 
         return node
 
-    # ===== Program Structure =====
+    def _flatten_field_tokens(self, item: Any) -> List[Token]:
+        """Recursively collect VAR tokens from nested dotted-var trees."""
+
+        if isinstance(item, Token):
+            return [item]
+
+        if isinstance(item, Tree):
+            tokens: List[Token] = []
+            for child in item.children:
+                tokens.extend(self._flatten_field_tokens(child))
+            return tokens
+
+        return []
 
     def program(self, items: List[Any]) -> Program:
         """Transform program root node."""
@@ -96,8 +71,6 @@ class ASTTransformer(Transformer):
         """Transform start rule."""
         return items[0] if items else Program(statements=[])
 
-    # ===== Literals =====
-
     def number(self, items: List[Token]) -> Number:
         """Transform number literal."""
         value_str = items[0].value
@@ -106,7 +79,6 @@ class ASTTransformer(Transformer):
 
     def string(self, items: List[Token]) -> String:
         """Transform string literal."""
-        # Remove quotes from string
         value = items[0].value[1:-1]
         return self._assign_position(String(value=value), items[0])
 
@@ -128,8 +100,6 @@ class ASTTransformer(Transformer):
         """Transform variable reference."""
         return self._assign_position(Var(name=items[0].value), items[0])
 
-    # ===== Declarations =====
-
     def var_decl(self, items: List[Any]) -> VarDecl:
         """Transform variable declaration."""
         token = next((i for i in items if isinstance(i, Token)), None)
@@ -140,20 +110,22 @@ class ASTTransformer(Transformer):
         """Transform array variable declaration."""
         name = items[0].value
         dimensions = items[1:]
-        return self._assign_position(ArrayVarDecl(name=name, dimensions=dimensions), items[0])
+        return self._assign_position(
+            ArrayVarDecl(name=name, dimensions=dimensions), items[0]
+        )
 
     def object_var_decl(self, items: List[Any]) -> ObjectVarDecl:
         """Transform object variable declaration."""
         class_name = items[0].value
         name = items[1].value
-        return self._assign_position(ObjectVarDecl(class_name=class_name, name=name), items[0])
+        return self._assign_position(
+            ObjectVarDecl(class_name=class_name, name=name), items[0]
+        )
 
     def graph_var_decl(self, items: List[Token]) -> GraphVarDecl:
         """Transform graph variable declaration."""
         name = items[0].value
         return self._assign_position(GraphVarDecl(name=name), items[0])
-
-    # ===== Assignments =====
 
     def assignment(self, items: List[Any]) -> Assignment:
         """Transform assignment statement."""
@@ -172,40 +144,64 @@ class ASTTransformer(Transformer):
         """Transform array element lvalue."""
         name = items[0].value
         indices = items[1:]
-        return self._assign_position(ArrayTarget(name=name, index=indices), items[0])
+        return self._assign_position(
+            ArrayTarget(name=name, index=indices, array=None), items[0]
+        )
 
-    def lvalue_field(self, items: List[Token]) -> FieldTarget:
+    def lvalue_field(self, items: List[Any]) -> FieldTarget:
         """Transform field access lvalue."""
-        obj = items[0].value
-        field = items[1].value
-        return self._assign_position(FieldTarget(obj=obj, field=field), items[0])
+        tokens: List[Token] = []
+        for item in items:
+            tokens.extend(self._flatten_field_tokens(item))
 
-    # ===== Control Flow =====
+        if not tokens:
+            return FieldTarget(obj="", field="")
+
+        obj = tokens[0].value
+        field = tokens[1].value if len(tokens) > 1 else ""
+        return self._assign_position(FieldTarget(obj=obj, field=field), tokens[0])
+
+    def lvalue_field_array(self, items: List[Any]) -> ArrayTarget:
+        """Transform field-based array element lvalue (e.g., graph.adj[u])."""
+        array_access = self.field_array_access(items)
+        target = ArrayTarget(
+            name=array_access.name,
+            index=array_access.index,
+            array=array_access.array,
+        )
+        base = items[0] if items else None
+        if hasattr(base, "metadata") and base.metadata is not None:
+            target.metadata = base.metadata
+        return target
 
     def for_loop(self, items: List[Any]) -> ForLoop:
         """Transform for loop."""
         meaning = [
-            item
-            for item in items
-            if not isinstance(item, Token) or item.type == "VAR"
+            item for item in items if not isinstance(item, Token) or item.type == "VAR"
         ]
 
         var_token = meaning[0]
         start = meaning[1]
         end = meaning[2]
         body_items = meaning[3]
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
         return self._assign_position(
             ForLoop(var=var_token.value, start=start, end=end, body=body),
             var_token if isinstance(var_token, Token) else None,
         )
 
+    def for_loop_downto(self, items: List[Any]) -> ForLoop:
+        """Transform descending for loop (downto)."""
+        loop = self.for_loop(items)
+        loop.step = Number(value=-1)
+        return loop
+
     def for_each_loop_assign(self, items: List[Any]) -> ForEachLoop:
         """Transform for-each loop using assignment syntax."""
         meaning = [
-            item
-            for item in items
-            if not isinstance(item, Token) or item.type == "VAR"
+            item for item in items if not isinstance(item, Token) or item.type == "VAR"
         ]
 
         if len(meaning) == 4:
@@ -216,7 +212,9 @@ class ASTTransformer(Transformer):
             var_token = meaning[0]
             collection = meaning[1]
             body_items = meaning[2]
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
         return self._assign_position(
             ForEachLoop(var=var_token.value, collection=collection, body=body),
             var_token if isinstance(var_token, Token) else None,
@@ -225,9 +223,7 @@ class ASTTransformer(Transformer):
     def for_each_loop_in(self, items: List[Any]) -> ForEachLoop:
         """Transform for-each loop using 'in' syntax."""
         meaning = [
-            item
-            for item in items
-            if not isinstance(item, Token) or item.type == "VAR"
+            item for item in items if not isinstance(item, Token) or item.type == "VAR"
         ]
 
         if len(meaning) == 4:
@@ -238,7 +234,9 @@ class ASTTransformer(Transformer):
             var_token = meaning[0]
             collection = meaning[1]
             body_items = meaning[2]
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
         return self._assign_position(
             ForEachLoop(var=var_token.value, collection=collection, body=body),
             var_token if isinstance(var_token, Token) else None,
@@ -254,13 +252,18 @@ class ASTTransformer(Transformer):
 
         condition = meaningful[0]
         body_items = meaningful[1]
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
         token = next((t for t in items if isinstance(t, Token)), None)
-        return self._assign_position(WhileLoop(cond=condition, body=body), token) if token else WhileLoop(cond=condition, body=body)
+        return (
+            self._assign_position(WhileLoop(cond=condition, body=body), token)
+            if token
+            else WhileLoop(cond=condition, body=body)
+        )
 
     def repeat_loop(self, items: List[Any]) -> RepeatUntil:
         """Transform repeat-until loop."""
-        # Body statements come before condition
         condition = items[-1]
         body_items = items[:-1]
         statements: List[Any] = []
@@ -271,7 +274,11 @@ class ASTTransformer(Transformer):
                 statements.append(item)
 
         token = next((t for t in items if isinstance(t, Token)), None)
-        return self._assign_position(RepeatUntil(cond=condition, body=statements), token) if token else RepeatUntil(cond=condition, body=statements)
+        return (
+            self._assign_position(RepeatUntil(cond=condition, body=statements), token)
+            if token
+            else RepeatUntil(cond=condition, body=statements)
+        )
 
     def if_statement(self, items: List[Any]) -> IfElse:
         """Transform if-then-else statement."""
@@ -281,17 +288,37 @@ class ASTTransformer(Transformer):
         else_branch = filtered[2] if len(filtered) > 2 else Program(statements=[])
 
         then_body = (
-            then_branch.statements if isinstance(then_branch, Program) else [then_branch]
+            then_branch.statements
+            if isinstance(then_branch, Program)
+            else [then_branch]
         )
         else_body = (
-            else_branch.statements if isinstance(else_branch, Program) else [else_branch]
+            else_branch.statements
+            if isinstance(else_branch, Program)
+            else [else_branch]
         )
 
         token = next((t for t in items if isinstance(t, Token)), None)
-        return self._assign_position(
-            IfElse(cond=condition, then_branch=then_body, else_branch=else_body),
-            token,
-        ) if token else IfElse(cond=condition, then_branch=then_body, else_branch=else_body)
+        return (
+            self._assign_position(
+                IfElse(cond=condition, then_branch=then_body, else_branch=else_body),
+                token,
+            )
+            if token
+            else IfElse(cond=condition, then_branch=then_body, else_branch=else_body)
+        )
+
+    def else_clause(self, items: List[Any]) -> Program:
+        """Normalize ELSE branches to Programs, supporting chained else-if constructs."""
+
+        content = [item for item in items if not isinstance(item, Token)]
+        if not content:
+            return Program(statements=[])
+
+        branch = content[0]
+        if isinstance(branch, Program):
+            return branch
+        return Program(statements=[branch])
 
     def code_block(self, items: List[Any]) -> Program:
         """Transform code block (begin...end)."""
@@ -306,20 +333,16 @@ class ASTTransformer(Transformer):
     def statement_block(self, items: List[Any]) -> Program:
         """Transform newline-delimited blocks terminated by END."""
         statements = [
-            item for item in items
-            if item is not None and not isinstance(item, Token)
+            item for item in items if item is not None and not isinstance(item, Token)
         ]
         return Program(statements=statements)
 
     def suite(self, items: List[Any]) -> Program:
         """Transform a generic statement suite without explicit delimiters."""
         statements = [
-            item for item in items
-            if item is not None and not isinstance(item, Token)
+            item for item in items if item is not None and not isinstance(item, Token)
         ]
         return Program(statements=statements)
-
-    # ===== Functions and Calls =====
 
     def subroutine_def(self, items: List[Any]) -> SubroutineDef:
         """Transform function definition (handles optional FUNCTION token)."""
@@ -343,10 +366,14 @@ class ASTTransformer(Transformer):
 
         body_statements = body.statements if body else []
         token = name_token if isinstance(name_token, Token) else None
-        return self._assign_position(
-            SubroutineDef(name=name, parameters=parameters, body=body_statements),
-            token,
-        ) if token else SubroutineDef(name=name, parameters=parameters, body=body_statements)
+        return (
+            self._assign_position(
+                SubroutineDef(name=name, parameters=parameters, body=body_statements),
+                token,
+            )
+            if token
+            else SubroutineDef(name=name, parameters=parameters, body=body_statements)
+        )
 
     def simple_parameter(self, items: List[Token]) -> Parameter:
         """Transform simple parameter."""
@@ -361,7 +388,9 @@ class ASTTransformer(Transformer):
         name = items[0].value
         dimensions = items[1:]
         return self._assign_position(
-            Parameter(name=name, param_type="array", dimensions=dimensions, class_name=None),
+            Parameter(
+                name=name, param_type="array", dimensions=dimensions, class_name=None
+            ),
             items[0],
         )
 
@@ -370,7 +399,9 @@ class ASTTransformer(Transformer):
         class_name = items[0].value
         name = items[1].value
         return self._assign_position(
-            Parameter(name=name, param_type="object", dimensions=None, class_name=class_name),
+            Parameter(
+                name=name, param_type="object", dimensions=None, class_name=class_name
+            ),
             items[0],
         )
 
@@ -387,7 +418,11 @@ class ASTTransformer(Transformer):
         name = items[0].value if hasattr(items[0], "value") else str(items[0])
         args = items[1:] if len(items) > 1 else []
         token = items[0] if isinstance(items[0], Token) else None
-        return self._assign_position(FuncCallExpr(name=name, args=args), token) if token else FuncCallExpr(name=name, args=args)
+        return (
+            self._assign_position(FuncCallExpr(name=name, args=args), token)
+            if token
+            else FuncCallExpr(name=name, args=args)
+        )
 
     def call_stmt(self, items: List[Any]) -> CallStmt:
         """Transform call statement."""
@@ -399,14 +434,20 @@ class ASTTransformer(Transformer):
 
         name_token = meaningful[0]
         args = [arg for arg in meaningful[1:]]
-        return self._assign_position(CallStmt(name=name_token.value, args=args), name_token if isinstance(name_token, Token) else None)
+        return self._assign_position(
+            CallStmt(name=name_token.value, args=args),
+            name_token if isinstance(name_token, Token) else None,
+        )
 
     def call_method(self, items: List[Any]) -> CallMethod:
         """Transform method call."""
         obj = items[0]
         method = items[1].value
         args = items[2:] if len(items) > 2 else []
-        return self._assign_position(CallMethod(obj=obj, method=method, args=args), items[1] if isinstance(items[1], Token) else None)
+        return self._assign_position(
+            CallMethod(obj=obj, method=method, args=args),
+            items[1] if isinstance(items[1], Token) else None,
+        )
 
     def method_call_base(self, items: List[Any]) -> CallMethod:
         """Transform base method call like obj.method(...)."""
@@ -414,20 +455,25 @@ class ASTTransformer(Transformer):
         method_token = items[1]
         args = items[2:] if len(items) > 2 else []
         obj = Var(name=obj_token.value) if isinstance(obj_token, Token) else obj_token
-        return self._assign_position(CallMethod(obj=obj, method=method_token.value, args=args), method_token if isinstance(method_token, Token) else None)
+        return self._assign_position(
+            CallMethod(obj=obj, method=method_token.value, args=args),
+            method_token if isinstance(method_token, Token) else None,
+        )
 
     def return_stmt(self, items: List[Any]) -> ReturnStmt:
         """Transform return statement."""
         meaningful_items = [item for item in items if not isinstance(item, Token)]
         value = meaningful_items[0] if meaningful_items else None
         token = next((t for t in items if isinstance(t, Token)), None)
-        return self._assign_position(ReturnStmt(value=value), token) if token else ReturnStmt(value=value)
+        return (
+            self._assign_position(ReturnStmt(value=value), token)
+            if token
+            else ReturnStmt(value=value)
+        )
 
     def expression_list(self, items: List[Any]) -> TupleLiteral:
         """Transform expression list a, b, c as tuple literal."""
         return TupleLiteral(elements=items)
-
-    # ===== Binary Operations =====
 
     def add(self, items: List[Any]) -> BinOp:
         """Transform addition."""
@@ -488,26 +534,54 @@ class ASTTransformer(Transformer):
         """Transform NOT expression."""
         if len(items) == 1:
             return items[0]
-        # NOT operator
         return UnOp(op="not", value=items[1])
 
     def comp_expr(self, items: List[Any]) -> Union[Any, BinOp]:
         """Transform comparison expression."""
         if len(items) == 1:
             return items[0]
-        # Comparison operator
+
         left = items[0]
         op = items[1].value
         right = items[2]
         return BinOp(op=op, left=left, right=right)
 
-    # ===== Array and Object Access =====
-
     def array_access(self, items: List[Any]) -> ArrayAccess:
         """Transform array element access."""
-        name = items[0].value
+        base = items[0]
         indices = items[1:]
-        return ArrayAccess(name=name, index=indices)
+        if isinstance(base, Token):
+            name = base.value
+            array_expr = None
+        else:
+            name = getattr(base, "name", None)
+            array_expr = base
+        return ArrayAccess(name=name, index=indices, array=array_expr)
+
+    def field_array_access(self, items: List[Any]) -> ArrayAccess:
+        """Transform field access followed by indexing (e.g., graph.adj[u])."""
+        base_access = items[0]
+        indices = items[1:]
+        if isinstance(base_access, FieldAccess):
+            name = (
+                f"{base_access.obj}.{base_access.field}"
+                if base_access.field
+                else base_access.obj
+            )
+        elif isinstance(base_access, ArrayAccess):
+            name = base_access.name
+        else:
+            name = getattr(base_access, "name", None)
+        return ArrayAccess(name=name, index=indices, array=base_access)
+
+    def extended_field_access(self, items: List[Any]) -> FieldAccess:
+        """Transform trailing field access after array indexing (e.g., adj[u].node)."""
+        base = items[0]
+        field_tokens = [token for token in items[1:] if isinstance(token, Token) and token.type == "VAR"]
+        field = ".".join(token.value for token in field_tokens)
+        token = field_tokens[0] if field_tokens else None
+        node = FieldAccess(obj=base, field=field)
+        return self._assign_position(node, token) if token else node
 
     def array_slice(self, items: List[Any]) -> ArraySlice:
         """Transform array slice."""
@@ -516,13 +590,21 @@ class ASTTransformer(Transformer):
         end = items[2] if len(items) > 2 else None
         return ArraySlice(name=name, ranges=items[1:], start=start, end=end)
 
-    def field_access(self, items: List[Token]) -> FieldAccess:
+    def field_access(self, items: List[Any]) -> FieldAccess:
         """Transform chained object field access (a.b.c → obj=a, field='b.c')."""
-        obj = items[0].value
-        field = ".".join(token.value for token in items[1:])
-        return FieldAccess(obj=obj, field=field)
+        tokens: List[Token] = []
+        for item in items:
+            if isinstance(item, Token):
+                tokens.append(item)
+            else:
+                tokens.extend(self._flatten_field_tokens(item))
 
-    # ===== Indexers =====
+        if not tokens:
+            return FieldAccess(obj="", field="")
+
+        obj = tokens[0].value
+        field = ".".join(token.value for token in tokens[1:])
+        return FieldAccess(obj=obj, field=field)
 
     def indexer_single(self, items: List[Any]) -> Any:
         """Transform single index."""
@@ -530,12 +612,10 @@ class ASTTransformer(Transformer):
 
     def indexer_range(self, items: List[Any]) -> dict:
         """Transform range indexer."""
-        # Items structure: [start_expr, Token('RANGE', '..'), end_expr]
         return {"type": "range", "start": items[0], "end": items[2]}
 
     def indexer_open_start(self, items: List[Any]) -> dict:
         """Transform open start range."""
-        # Items structure: [Token('RANGE', '..'), end_expr]
         return {"type": "range", "start": None, "end": items[1]}
 
     def indexer_open_end(self, items: List[Any]) -> dict:
@@ -552,12 +632,13 @@ class ASTTransformer(Transformer):
 
     def for_each_tuple_in(self, items: List[Any]) -> Any:
         """Transform tuple destructuring in for-each loops (for each (u, v) in collection)."""
-        # items: [first_var, second_var, collection, body]
         first_var, second_var, collection, body_items = items
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
 
         loop = ForEachLoop(var="tuple", collection=collection, body=body)
-        loop.tuple_vars = [  # type: ignore[attr-defined]
+        loop.tuple_vars = [
             first_var.value if hasattr(first_var, "value") else str(first_var),
             second_var.value if hasattr(second_var, "value") else str(second_var),
         ]
@@ -565,63 +646,25 @@ class ASTTransformer(Transformer):
 
     def for_each_named_tuple_in(self, items: List[Any]) -> Any:
         """Transform named foreach tuple (e.g., for each edge (u, v) in G.edges)."""
-        meaningful = [item for item in items if not isinstance(item, Token) or item.type == "VAR"]
+        meaningful = [
+            item for item in items if not isinstance(item, Token) or item.type == "VAR"
+        ]
 
         descriptor = meaningful[0]
         first_var = meaningful[1]
         second_var = meaningful[2]
         collection = meaningful[3]
         body_items = meaningful[4]
-        body = body_items.statements if isinstance(body_items, Program) else [body_items]
+        body = (
+            body_items.statements if isinstance(body_items, Program) else [body_items]
+        )
 
         loop = ForEachLoop(var=descriptor.value, collection=collection, body=body)
-        loop.tuple_vars = [  # type: ignore[attr-defined]
+        loop.tuple_vars = [
             first_var.value if hasattr(first_var, "value") else str(first_var),
             second_var.value if hasattr(second_var, "value") else str(second_var),
         ]
         return loop
-
-    # ===== Built-in Functions =====
-
-    def length_function(self, items: List[Any]) -> LengthFunction:
-        """Transform length function."""
-        return LengthFunction(array=items[0])
-
-    def ceil_function(self, items: List[Any]) -> CeilFunction:
-        """Transform ceil function."""
-        return CeilFunction(expr=items[0])
-
-    def floor_function(self, items: List[Any]) -> FloorFunction:
-        """Transform floor function."""
-        return FloorFunction(expr=items[0])
-
-    def strlen_function(self, items: List[Any]) -> StrlenFunction:
-        """Transform strlen function."""
-        return StrlenFunction(expr=items[0])
-
-    def concat_function(self, items: List[Any]) -> ConcatFunction:
-        """Transform concat function."""
-        return ConcatFunction(left=items[0], right=items[1])
-
-    def substring_function(self, items: List[Any]) -> SubstringFunction:
-        """Transform substring function."""
-        return SubstringFunction(string=items[0], start=items[1], length=items[2])
-
-    def tuple_expr(self, items: List[Any]) -> TupleLiteral:
-        """Transform tuple literal (expr, expr, ...)."""
-        return TupleLiteral(elements=items)
-
-    def print_stmt(self, items: List[Any]) -> PrintStmt:
-        """Transform print statement."""
-        value = next((item for item in items if not isinstance(item, Token)), None)
-        return PrintStmt(value=value)
-
-    def print_function(self, items: List[Any]) -> PrintStmt:
-        """Transform print function (in expression context)."""
-        value = next((item for item in items if not isinstance(item, Token)), None)
-        return PrintStmt(value=value)
-
-    # ===== Graph Operations =====
 
     def addnode_function(self, items: List[Any]) -> AddNodeFunction:
         """Transform addNode function."""
@@ -638,7 +681,11 @@ class ASTTransformer(Transformer):
 
     def neighbors_function(self, items: List[Any]) -> NeighborsFunction:
         """Transform neighbors function."""
-        meaningful = [item for item in items if not (isinstance(item, Token) and item.type == "NEIGHBORS")]
+        meaningful = [
+            item
+            for item in items
+            if not (isinstance(item, Token) and item.type == "NEIGHBORS")
+        ]
 
         if not meaningful:
             return NeighborsFunction(graph="", node=None)
@@ -646,7 +693,11 @@ class ASTTransformer(Transformer):
         graph_item = meaningful[0]
         node = meaningful[1] if len(meaningful) > 1 else None
 
-        graph_name = graph_item.value if isinstance(graph_item, Token) else getattr(graph_item, "name", str(graph_item))
+        graph_name = (
+            graph_item.value
+            if isinstance(graph_item, Token)
+            else getattr(graph_item, "name", str(graph_item))
+        )
 
         if isinstance(node, Token):
             node = Var(name=node.value)
@@ -665,8 +716,6 @@ class ASTTransformer(Transformer):
         from_node = items[1]
         to_node = items[2]
         return AddEdgeFunction(graph=graph, from_node=from_node, to_node=to_node)
-
-    # ===== Class and Object =====
 
     def class_def(self, items: List[Any]) -> ClassDef:
         """Transform class definition."""

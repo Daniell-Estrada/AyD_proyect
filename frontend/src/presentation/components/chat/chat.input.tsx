@@ -63,7 +63,9 @@ export default function ChatInput({ onSubmit, disabled }: ChatInputProps) {
 
           <p className="text-[11px] text-muted-foreground text-center">
             Press <kbd className="px-1 py-0.5 rounded bg-muted">Enter</kbd> to
-            send - <kbd className="px-1 py-0.5 rounded bg-muted">Shift+Enter</kbd> for new line
+            send -{" "}
+            <kbd className="px-1 py-0.5 rounded bg-muted">Shift+Enter</kbd> for
+            new line
           </p>
         </form>
       </Card>

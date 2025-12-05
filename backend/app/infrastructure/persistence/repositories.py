@@ -1,23 +1,15 @@
 """MongoDB-backed repository adapters implementing domain ports."""
 
-from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
 
-from app.domain.models.analysis import (
-    AnalysisResult,
-    AgentEvent,
-    ComplexitySummary,
-    HitlResponse,
-    Session,
-    SessionStatus,
-)
-from app.domain.repositories.interfaces import (
-    AnalysisResultRepository,
-    AgentEventRepository,
-    SessionRepository,
-)
-from app.infrastructure.persistence.mongodb_service import MongoDBService, mongodb_service
+from app.domain.models.analysis import (AgentEvent, AnalysisResult,
+                                        ComplexitySummary, HitlResponse,
+                                        Session, SessionStatus)
+from app.domain.repositories.interfaces import (AgentEventRepository,
+                                                AnalysisResultRepository,
+                                                SessionRepository)
+from app.infrastructure.persistence.mongodb_service import (MongoDBService,
+                                                            mongodb_service)
 
 
 def _to_session(doc: Dict[str, Any]) -> Session:
@@ -105,7 +97,9 @@ class MongoSessionRepository(SessionRepository):
     async def update_stage(self, session_id: str, stage: str) -> None:
         await self._service.update_session_stage(session_id, stage)
 
-    async def append_hitl_response(self, session_id: str, response: HitlResponse) -> None:
+    async def append_hitl_response(
+        self, session_id: str, response: HitlResponse
+    ) -> None:
         await self._service.record_hitl_approval(
             session_id=session_id,
             stage=response.stage,
@@ -115,11 +109,14 @@ class MongoSessionRepository(SessionRepository):
 
     async def list_recent(self, limit: int = 10) -> List[Session]:
         docs = await self._service.get_recent_sessions(limit=limit)
-        return [_to_session({k: v for k, v in doc.items() if k != "_id"}) for doc in docs]
+        return [
+            _to_session({k: v for k, v in doc.items() if k != "_id"}) for doc in docs
+        ]
 
 
 class MongoAnalysisResultRepository(AnalysisResultRepository):
     """Persist analysis outputs via MongoDBService."""
+
     def __init__(self, service: MongoDBService | None = None):
         self._service = service or mongodb_service
 
@@ -130,7 +127,11 @@ class MongoAnalysisResultRepository(AnalysisResultRepository):
             pseudocode=result.pseudocode,
             ast=result.ast,
             paradigm=result.paradigm,
-            complexities=result.complexity.__dict__ if hasattr(result.complexity, "__dict__") else result.complexity,
+            complexities=(
+                result.complexity.__dict__
+                if hasattr(result.complexity, "__dict__")
+                else result.complexity
+            ),
             analysis_steps=result.analysis_steps,
             diagrams=result.diagrams,
             validation_results=result.validation,
@@ -147,6 +148,7 @@ class MongoAnalysisResultRepository(AnalysisResultRepository):
 
 class MongoAgentEventRepository(AgentEventRepository):
     """Log agent lifecycle events into MongoDB."""
+
     def __init__(self, service: MongoDBService | None = None):
         self._service = service or mongodb_service
 

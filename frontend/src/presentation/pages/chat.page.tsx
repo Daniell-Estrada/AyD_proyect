@@ -8,9 +8,8 @@ import ChatInput from "../components/chat/chat.input";
 import ResultsPanel from "../components/chat/results.panel";
 import AgentProgress from "../components/chat/agent.progress";
 import { Button } from "../components/ui/button";
-import { ArrowLeft, CirclePause } from "lucide-react";
-import toast from "react-hot-toast";
-import type { AgentEvent, ChatMessage, HitlRequest } from "../../lib/types";
+import { ArrowLeft } from "lucide-react";
+import type { AgentEvent, AnalysisResult, ChatMessage, HitlRequest } from "../../lib/types";
 
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -32,7 +31,7 @@ export default function ChatPage() {
     resetSession,
   } = useStore();
 
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] = useState<Partial<AnalysisResult> | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const initialConnectionRef = useRef(false);
 
@@ -63,13 +62,10 @@ export default function ChatPage() {
       const sid = await socketService.connect();
       setConnected(true, sid);
       console.log("[v0] Connected with socket ID:", sid);
-      toast.success("Connected to server");
-
       registerSocketHandlers();
     } catch (error) {
       console.error("[v0] Connection failed:", error);
       setConnected(false);
-      toast.error("Failed to connect to server");
     }
   };
 
@@ -125,7 +121,6 @@ export default function ChatPage() {
           timestamp: new Date(),
           metadata: data.payload,
         });
-        toast.error(`${data.agent_name} failed`);
       } else if (data.status === "resolved") {
         useStore.setState((state) => ({
           messages: state.messages.map((message) => {
@@ -158,11 +153,11 @@ export default function ChatPage() {
         const actionLabel =
           typeof action === "string"
             ? {
-                approve: "approved",
-                deny: "denied",
-                edit: "edited",
-                recommend: "recommendation noted",
-              }[action] || action
+              approve: "approved",
+              deny: "denied",
+              edit: "edited",
+              recommend: "recommendation noted",
+            }[action] || action
             : "approval resolved";
 
         addMessage({
@@ -212,8 +207,6 @@ export default function ChatPage() {
           resolved: false,
         },
       });
-
-      toast("Approval required", { icon: <CirclePause /> });
     });
 
     socketService.onAnalysisComplete((data) => {
@@ -227,8 +220,6 @@ export default function ChatPage() {
         timestamp: new Date(),
         metadata: data.result,
       });
-
-      toast.success("Analysis completed!");
     });
 
     socketService.onAnalysisFailed((data) => {
@@ -242,245 +233,238 @@ export default function ChatPage() {
         content: `Analysis failed: ${errorMsg}`,
         timestamp: new Date(),
       });
-
-      toast.error("Analysis failed");
-    });
-
-    socketService.onError((data) => {
-      console.error("[v0] Socket error:", data);
-      toast.error(data.message || "An error occurred");
     });
   };
 
-  const loadExistingSession = useCallback(async (sid: string) => {
-    setIsLoadingSession(true);
-    try {
-      resetSession();
-      setAnalysisResult(null);
-      const [session, rawEvents] = await Promise.all([
-        ApiService.getSession(sid),
-        ApiService.getSessionEvents(sid).catch(() => [] as AgentEvent[]),
-      ]);
+  const loadExistingSession = useCallback(
+    async (sid: string) => {
+      setIsLoadingSession(true);
+      try {
+        resetSession();
+        setAnalysisResult(null);
+        const [session, rawEvents] = await Promise.all([
+          ApiService.getSession(sid),
+          ApiService.getSessionEvents(sid).catch(() => [] as AgentEvent[]),
+        ]);
 
-      setCurrentSession(sid);
+        setCurrentSession(sid);
 
-      const eventHistory = [...rawEvents].sort((a, b) => {
-        const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return aTime - bTime;
-      });
+        const eventHistory = [...rawEvents].sort((a, b) => {
+          const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return aTime - bTime;
+        });
 
-      setAgentEvents(eventHistory);
+        setAgentEvents(eventHistory);
 
-      const historyMessages: ChatMessage[] = [
-        {
-          id: crypto.randomUUID(),
-          type: "user",
-          content: session.user_input,
-          timestamp: new Date(session.created_at),
-        },
-      ];
-
-      const pendingByStage = new Map<string, { request: HitlRequest; messageId: string }>();
-      let lastResolvedAction: string | null = null;
-
-      eventHistory.forEach((event) => {
-        const eventTimestamp = event.timestamp
-          ? new Date(event.timestamp)
-          : new Date();
-        const payload = event.payload ?? {};
-
-        if (event.status === "started") {
-          historyMessages.push({
+        const historyMessages: ChatMessage[] = [
+          {
             id: crypto.randomUUID(),
-            type: "agent",
-            content:
-              payload.message || `${event.agent_name} is processing...`,
-            timestamp: eventTimestamp,
-            agent_name: event.agent_name,
-            metadata: payload,
-          });
-          return;
-        }
+            type: "user",
+            content: session.user_input,
+            timestamp: new Date(session.created_at),
+          },
+        ];
 
-        if (event.status === "completed") {
-          const requiresReview = Boolean(payload?.requires_review);
-          const messageContent = requiresReview
-            ? `${event.agent_name} output ready for review`
-            : payload?.message || `${event.agent_name} completed successfully`;
+        const pendingByStage = new Map<
+          string,
+          { request: HitlRequest; messageId: string }
+        >();
+        let lastResolvedAction: string | null = null;
 
-          const metadata = requiresReview
-            ? { ...(payload ?? {}), requires_review: true }
-            : payload;
+        eventHistory.forEach((event) => {
+          const eventTimestamp = event.timestamp
+            ? new Date(event.timestamp)
+            : new Date();
+          const payload = event.payload ?? {};
 
-          historyMessages.push({
-            id: crypto.randomUUID(),
-            type: requiresReview ? "system" : "agent",
-            content: messageContent,
-            timestamp: eventTimestamp,
-            agent_name: requiresReview ? undefined : event.agent_name,
-            metadata,
-          });
-          return;
-        }
-
-        if (event.status === "failed") {
-          historyMessages.push({
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `${event.agent_name} failed: ${payload.message ?? "See details"}`,
-            timestamp: eventTimestamp,
-            metadata: payload,
-          });
-          return;
-        }
-
-        if (event.status === "pending") {
-          const hitlMetadata = {
-            ...payload,
-            stage: event.stage,
-            session_id: event.session_id,
-            resolved: false,
-          };
-
-          const messageId = crypto.randomUUID();
-
-          historyMessages.push({
-            id: messageId,
-            type: "hitl",
-            content: `${event.agent_name} requires your approval`,
-            timestamp: eventTimestamp,
-            agent_name: event.agent_name,
-            metadata: hitlMetadata,
-          });
-
-          pendingByStage.set(event.stage, {
-            messageId,
-            request: {
-              session_id: event.session_id,
-              stage: event.stage,
+          if (event.status === "started") {
+            historyMessages.push({
+              id: crypto.randomUUID(),
+              type: "agent",
+              content:
+                payload.message || `${event.agent_name} is processing...`,
+              timestamp: eventTimestamp,
               agent_name: event.agent_name,
-              output:
-                payload.output ??
-                payload.output_preview ??
-                payload ??
-                null,
-              reasoning:
-                payload.reasoning ??
-                payload.message ??
-                (typeof payload === "string" ? payload : ""),
-            },
-          });
-          return;
-        }
-
-        if (event.status === "resolved") {
-          const pendingEntry = pendingByStage.get(event.stage);
-          if (pendingEntry) {
-            const index = historyMessages.findIndex(
-              (message) => message.id === pendingEntry.messageId,
-            );
-            if (index !== -1) {
-              const existing = historyMessages[index];
-              historyMessages[index] = {
-                ...existing,
-                metadata: {
-                  ...(existing.metadata ?? {}),
-                  resolved: true,
-                  resolved_action: payload?.action,
-                },
-              };
-            }
+              metadata: payload,
+            });
+            return;
           }
 
-          pendingByStage.delete(event.stage);
+          if (event.status === "completed") {
+            const requiresReview = Boolean(payload?.requires_review);
+            const messageContent = requiresReview
+              ? `${event.agent_name} output ready for review`
+              : payload?.message ||
+              `${event.agent_name} completed successfully`;
 
-          const action = payload?.action;
-          const actionLabel =
-            typeof action === "string"
-              ? {
+            const metadata = requiresReview
+              ? { ...(payload ?? {}), requires_review: true }
+              : payload;
+
+            historyMessages.push({
+              id: crypto.randomUUID(),
+              type: requiresReview ? "system" : "agent",
+              content: messageContent,
+              timestamp: eventTimestamp,
+              agent_name: requiresReview ? undefined : event.agent_name,
+              metadata,
+            });
+            return;
+          }
+
+          if (event.status === "failed") {
+            historyMessages.push({
+              id: crypto.randomUUID(),
+              type: "system",
+              content: `${event.agent_name} failed: ${payload.message ?? "See details"}`,
+              timestamp: eventTimestamp,
+              metadata: payload,
+            });
+            return;
+          }
+
+          if (event.status === "pending") {
+            const hitlMetadata = {
+              ...payload,
+              stage: event.stage,
+              session_id: event.session_id,
+              resolved: false,
+            };
+
+            const messageId = crypto.randomUUID();
+
+            historyMessages.push({
+              id: messageId,
+              type: "hitl",
+              content: `${event.agent_name} requires your approval`,
+              timestamp: eventTimestamp,
+              agent_name: event.agent_name,
+              metadata: hitlMetadata,
+            });
+
+            pendingByStage.set(event.stage, {
+              messageId,
+              request: {
+                session_id: event.session_id,
+                stage: event.stage,
+                agent_name: event.agent_name,
+                output:
+                  payload.output ?? payload.output_preview ?? payload ?? null,
+                reasoning:
+                  payload.reasoning ??
+                  payload.message ??
+                  (typeof payload === "string" ? payload : ""),
+              },
+            });
+            return;
+          }
+
+          if (event.status === "resolved") {
+            const pendingEntry = pendingByStage.get(event.stage);
+            if (pendingEntry) {
+              const index = historyMessages.findIndex(
+                (message) => message.id === pendingEntry.messageId,
+              );
+              if (index !== -1) {
+                const existing = historyMessages[index];
+                historyMessages[index] = {
+                  ...existing,
+                  metadata: {
+                    ...(existing.metadata ?? {}),
+                    resolved: true,
+                    resolved_action: payload?.action,
+                  },
+                };
+              }
+            }
+
+            pendingByStage.delete(event.stage);
+
+            const action = payload?.action;
+            const actionLabel =
+              typeof action === "string"
+                ? {
                   approve: "approved",
                   deny: "denied",
                   edit: "edited",
                   recommend: "recommendation noted",
                 }[action] || action
-              : "approval resolved";
+                : "approval resolved";
 
-          if (typeof action === "string") {
-            lastResolvedAction = action;
+            if (typeof action === "string") {
+              lastResolvedAction = action;
+            }
+
+            historyMessages.push({
+              id: crypto.randomUUID(),
+              type: "system",
+              content: `${event.agent_name} ${actionLabel}`,
+              timestamp: eventTimestamp,
+              metadata: payload,
+            });
           }
-
-          historyMessages.push({
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `${event.agent_name} ${actionLabel}`,
-            timestamp: eventTimestamp,
-            metadata: payload,
-          });
-        }
-      });
-
-      let analysisResult: any = null;
-      if (session.status === "completed") {
-        try {
-          analysisResult = await ApiService.getResults(sid);
-          setAnalysisResult(analysisResult);
-
-          historyMessages.push({
-            id: crypto.randomUUID(),
-            type: "system",
-            content: "Loaded previous analysis results",
-            timestamp: analysisResult?.created_at
-              ? new Date(analysisResult.created_at)
-              : new Date(session.updated_at),
-            metadata: analysisResult,
-          });
-        } catch (error) {
-          console.error("[v0] Failed to load results:", error);
-        }
-      } else {
-        historyMessages.push({
-          id: crypto.randomUUID(),
-          type: "system",
-          content: `Continuando análisis en etapa ${session.current_stage}`,
-          timestamp: new Date(session.updated_at || Date.now()),
         });
+
+        let analysisResult: any = null;
+        if (session.status === "completed") {
+          try {
+            analysisResult = await ApiService.getResults(sid);
+            setAnalysisResult(analysisResult);
+
+            historyMessages.push({
+              id: crypto.randomUUID(),
+              type: "system",
+              content: "Loaded previous analysis results",
+              timestamp: analysisResult?.created_at
+                ? new Date(analysisResult.created_at)
+                : new Date(session.updated_at),
+              metadata: analysisResult,
+            });
+          } catch (error) {
+            console.error("[v0] Failed to load results:", error);
+          }
+        } else {
+          historyMessages.push({
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `Continuando análisis en etapa ${session.current_stage}`,
+            timestamp: new Date(session.updated_at || Date.now()),
+          });
+        }
+
+        historyMessages.sort(
+          (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
+        );
+
+        setMessages(historyMessages);
+
+        const pendingFromHistoryEntry =
+          pendingByStage.size > 0
+            ? (Array.from(pendingByStage.values()).pop() ?? null)
+            : null;
+
+        setPendingHitl(pendingFromHistoryEntry?.request ?? null);
+        const shouldAnalyze =
+          session.status === "processing" &&
+          !pendingFromHistoryEntry &&
+          lastResolvedAction !== "deny";
+        setAnalyzing(shouldAnalyze);
+      } catch (error) {
+      } finally {
+        setIsLoadingSession(false);
       }
-
-      historyMessages.sort(
-        (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
-      );
-
-      setMessages(historyMessages);
-
-      const pendingFromHistoryEntry =
-        pendingByStage.size > 0
-          ? Array.from(pendingByStage.values()).pop() ?? null
-          : null;
-
-      setPendingHitl(pendingFromHistoryEntry?.request ?? null);
-      const shouldAnalyze =
-        session.status === "processing" &&
-        !pendingFromHistoryEntry &&
-        lastResolvedAction !== "deny";
-      setAnalyzing(shouldAnalyze);
-
-      toast.success("Session loaded");
-    } catch (error) {
-      console.error("[v0] Failed to load session:", error);
-      toast.error("Failed to load session");
-    } finally {
-      setIsLoadingSession(false);
-    }
-  }, [
-    resetSession,
-    setAnalysisResult,
-    setCurrentSession,
-    setAgentEvents,
-    setMessages,
-    setPendingHitl,
-    setAnalyzing,
-  ]);
+    },
+    [
+      resetSession,
+      setAnalysisResult,
+      setCurrentSession,
+      setAgentEvents,
+      setMessages,
+      setPendingHitl,
+      setAnalyzing,
+    ],
+  );
 
   useEffect(() => {
     if (sessionId && !currentSessionId) {
@@ -490,7 +474,6 @@ export default function ChatPage() {
 
   const handleSubmitAnalysis = (userInput: string) => {
     if (!isConnected) {
-      toast.error("Not connected to server");
       return;
     }
 
@@ -510,8 +493,6 @@ export default function ChatPage() {
     socketService.startAnalysis({
       user_input: userInput,
     });
-
-    toast("Starting analysis...", { icon: "🚀" });
   };
 
   const handleHitlApprove = () => {
@@ -531,7 +512,6 @@ export default function ChatPage() {
       content: `Confirmaste la salida de ${pendingHitl.agent_name}`,
       timestamp: new Date(),
     });
-    toast.success("Approved! Continuing...");
   };
 
   const handleHitlDeny = (feedback: string) => {
@@ -551,9 +531,6 @@ export default function ChatPage() {
       type: "system",
       content: `Rechazaste la salida de ${pendingHitl.agent_name}`,
       timestamp: new Date(),
-    });
-    toast("Feedback enviado. Solicitando nueva iteración...", {
-      icon: "♻️",
     });
   };
 
@@ -575,13 +552,11 @@ export default function ChatPage() {
       content: `Editaste la salida de ${pendingHitl.agent_name}`,
       timestamp: new Date(),
     });
-    toast.success("Edited! Continuing with changes...");
   };
 
   const handleHitlRecommend = (recommendation: string) => {
     if (!pendingHitl || !currentSessionId) return;
     if (!recommendation.trim()) {
-      toast.error("Please provide a recommendation");
       return;
     }
 
@@ -600,7 +575,6 @@ export default function ChatPage() {
       content: `Enviaste recomendaciones para ${pendingHitl.agent_name}`,
       timestamp: new Date(),
     });
-    toast.success("Recommendation sent. Continuing...");
   };
 
   const handleBack = () => {
@@ -664,7 +638,6 @@ export default function ChatPage() {
           </div>
         )}
       </div>
-
     </div>
   );
 }

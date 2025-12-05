@@ -1,6 +1,5 @@
 """
-Documenter Agent - Generates final documentation, diagrams, and summary.
-Implements Single Responsibility Principle.
+Documenter Agent for Algorithm Analysis Application.
 """
 
 import json
@@ -26,13 +25,6 @@ class DocumenterAgent(BaseAgent):
         llm_service: LLMService,
         diagram_service: DiagramService,
     ):
-        """
-        Initialize Documenter Agent.
-
-        Args:
-            llm_service: LLM service instance
-            diagram_service: Diagram generation service
-        """
         super().__init__(name="DocumenterAgent", llm_service=llm_service)
         self.llm_service = llm_service
         self.diagram_service = diagram_service
@@ -41,35 +33,24 @@ class DocumenterAgent(BaseAgent):
     def execute(self, state: AgentState) -> AgentState:
         """
         Execute documentation generation.
-
-        Args:
-            state: Current agent state
-
-        Returns:
-            Updated state with documentation
         """
         logger.info(f"{self.name}: Starting documentation")
 
         try:
-            # 1. Generate algorithm name (if not present)
             algorithm_name = self._generate_algorithm_name(state)
             state["algorithm_name"] = algorithm_name
 
-            # 2. Generate diagrams
             diagrams = self._generate_all_diagrams(state)
             existing_diagrams = state.get("diagrams", {})
             existing_diagrams.update(diagrams)
             state["diagrams"] = existing_diagrams
 
-            # 3. Generate summary
             summary = self._generate_summary(state)
             state["summary"] = summary
 
-            # 4. Generate detailed explanation
             explanation = self._generate_explanation(state)
             state["detailed_explanation"] = explanation
 
-            # 5. Compile final output
             final_output = self._compile_final_output(state)
             state["final_output"] = final_output
             state["current_stage"] = "documentation_complete"
@@ -85,7 +66,6 @@ class DocumenterAgent(BaseAgent):
 
     def _generate_algorithm_name(self, state: AgentState) -> str:
         """Generate or extract algorithm name."""
-        # Try to extract from AST
         ast_dict = state.get("parsed_ast", {})
         if ast_dict.get("type") == "Program":
             for stmt in ast_dict.get("statements", []):
@@ -94,17 +74,15 @@ class DocumenterAgent(BaseAgent):
                     if name:
                         return name
 
-        # Use LLM to generate name
         paradigm = state.get("paradigm", "algorithm")
         user_input = state.get("user_input", "")[:200]
 
-        system_prompt = """Generate a concise, descriptive name for an algorithm.
-Output only the name, no explanation."""
+        system_prompt = """Generate a concise, descriptive name for an algorithm. 
+        Output only the name, no explanation."""
 
-        user_prompt = f"""Algorithm description: {user_input}
-Paradigm: {paradigm}
-
-Generate a name (e.g., "MergeSort", "DijkstraShortestPath")."""
+        user_prompt = f"""Algorithm description: 
+            {user_input} Paradigm: {paradigm} 
+        Generate a name (e.g., "MergeSort", "DijkstraShortestPath")."""
 
         try:
             name, _ = self._invoke_llm(state, system_prompt, user_prompt)
@@ -117,14 +95,10 @@ Generate a name (e.g., "MergeSort", "DijkstraShortestPath")."""
         diagrams = {}
 
         try:
-            # Flowchart (if AST available)
             ast_dict = state.get("parsed_ast")
             if ast_dict:
-                # Convert dict back to AST (simplified - would need proper reconstruction)
-                # For now, skip flowchart or use LLM
                 pass
 
-            # Complexity comparison diagram
             complexities = {
                 "Best Case": state.get("complexity_best_case", "Ω(?)"),
                 "Average Case": state.get("complexity_average_case", "Θ(?)"),
@@ -155,11 +129,11 @@ Generate a name (e.g., "MergeSort", "DijkstraShortestPath")."""
 
         summary = f"""**{algorithm_name}** - {human_paradigm} Algorithm{tail_note}
 
-    **Complexity Analysis:**
-    - **Best Case:** {best_case}
-    - **Worst Case:** {worst_case}
-    - **Average Case:** {state.get("complexity_average_case", "Θ(?)")}
-    """
+        **Complexity Analysis:**
+        - **Best Case:** {best_case}
+        - **Worst Case:** {worst_case}
+        - **Average Case:** {state.get("complexity_average_case", "Θ(?)")}
+        """
 
         if state.get("tight_bounds"):
             summary += f"- **Tight Bounds:** {state['tight_bounds']}\n"

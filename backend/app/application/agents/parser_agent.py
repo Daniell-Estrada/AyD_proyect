@@ -3,13 +3,17 @@ Parser Agent - Parses pseudocode into Abstract Syntax Tree (AST).
 Implements Single Responsibility Principle.
 """
 
-import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from app.application.agents.state import AgentState
-from app.domain.models.ast import ASTNode, Program
-from app.infrastructure.parser.language_parser import LanguageParser, ParserResult
+from app.domain.models.ast import (ASTNode, BinOp, CallStmt, ForEachLoop,
+                                   ForLoop, FuncCallExpr, IfElse, Number, Program,
+                                   RepeatUntil, ReturnStmt, SubroutineDef, Var, WhileLoop)
+from app.domain.services.pattern_detectors.memoization_detector import \
+    MemoizationPatternDetector
+from app.infrastructure.parser.language_parser import (LanguageParser,
+                                                       ParserResult)
 
 logger = logging.getLogger(__name__)
 
@@ -21,19 +25,12 @@ class ParserAgent:
     """
 
     def __init__(self):
-        """Initialize Parser Agent."""
         self.parser = LanguageParser()
         self.name = "ParserAgent"
 
     def execute(self, state: AgentState) -> AgentState:
         """
-        Execute parsing of pseudocode to AST.
-
-        Args:
-            state: Current agent state
-
-        Returns:
-            Updated state with parsed AST
+        Execute parsing of pseudocode into AST.
         """
         logger.info(f"{self.name}: Starting parsing")
 
@@ -47,20 +44,15 @@ class ParserAgent:
             return state
 
         try:
-            # Parse pseudocode to AST
             parse_result: ParserResult = self.parser.parse(pseudocode)
             ast = parse_result.ast
 
-            # Convert AST to serializable dict
             ast_dict = self._ast_to_dict(ast)
-
-            # Analyze AST patterns
             patterns = self._identify_patterns(ast)
 
             diagnostics = parse_result.diagnostics
             warning_messages = [warning.message for warning in diagnostics.warnings]
 
-            # Update state
             state["parsed_ast"] = ast_dict
             state["parsing_success"] = True
             state["parsing_errors"] = None
@@ -68,7 +60,6 @@ class ParserAgent:
             state["parser_normalized_source"] = diagnostics.normalized_source
             state["parser_warnings"] = warning_messages
 
-            # Store pattern information for next agents
             if "metadata" not in state:
                 state["metadata"] = {}
             state["metadata"]["patterns"] = patterns
@@ -89,17 +80,11 @@ class ParserAgent:
 
         return state
 
-    def _ast_to_dict(self, node: Any, depth: int = 0, max_depth: int = 50) -> Dict[str, Any]:
+    def _ast_to_dict(
+        self, node: Any, depth: int = 0, max_depth: int = 50
+    ) -> Dict[str, Any]:
         """
         Convert AST node to serializable dictionary.
-
-        Args:
-            node: AST node
-            depth: Current recursion depth
-            max_depth: Maximum recursion depth to prevent infinite loops
-
-        Returns:
-            Dictionary representation of AST
         """
         if depth > max_depth:
             return {"type": "max_depth_exceeded"}
@@ -107,25 +92,22 @@ class ParserAgent:
         if node is None:
             return None
 
-        # Handle primitive types
         if isinstance(node, (int, float, str, bool)):
             return node
 
-        # Handle lists
         if isinstance(node, list):
             return [self._ast_to_dict(item, depth + 1, max_depth) for item in node]
 
-        # Handle dict (for indexer ranges, etc.)
         if isinstance(node, dict):
-            return {k: self._ast_to_dict(v, depth + 1, max_depth) for k, v in node.items()}
+            return {
+                k: self._ast_to_dict(v, depth + 1, max_depth) for k, v in node.items()
+            }
 
-        # Handle AST nodes
         if isinstance(node, ASTNode):
             result = {
                 "type": type(node).__name__,
             }
 
-            # Add all attributes except methods and private attributes
             for attr_name in dir(node):
                 if attr_name.startswith("_") or callable(getattr(node, attr_name)):
                     continue
@@ -138,30 +120,12 @@ class ParserAgent:
 
             return result
 
-        # Fallback for unknown types
         return str(node)
 
     def _identify_patterns(self, ast: Program) -> Dict[str, Any]:
         """
         Identify algorithmic patterns in AST.
-
-        Args:
-            ast: Program AST
-
-        Returns:
-            Dictionary of detected patterns
         """
-        from app.domain.models.ast import (
-            CallStmt,
-            ForEachLoop,
-            ForLoop,
-            FuncCallExpr,
-            IfElse,
-            RepeatUntil,
-            ReturnStmt,
-            SubroutineDef,
-            WhileLoop,
-        )
 
         patterns = {
             "has_loops": False,
@@ -183,6 +147,13 @@ class ParserAgent:
             "has_sequential_loops": False,
             "has_repeat_until": False,
             "repeat_until_count": 0,
+            "has_constant_decrement_recursion": False,
+            "has_fractional_split_recursion": False,
+            "non_linear_split_recursion": False,
+            "recursive_constant_decrements": [],
+            "fractional_split_factors": [],
+            "estimated_branching_factor": 0,
+            "recursive_argument_shapes": [],
         }
 
         call_targets: set[str] = set()
@@ -194,7 +165,9 @@ class ParserAgent:
             if isinstance(node, (ForLoop, ForEachLoop, WhileLoop, RepeatUntil)):
                 patterns["has_loops"] = True
                 patterns["loop_count"] += 1
-                patterns["max_loop_depth"] = max(patterns["max_loop_depth"], loop_depth + 1)
+                patterns["max_loop_depth"] = max(
+                    patterns["max_loop_depth"], loop_depth + 1
+                )
 
                 loops_per_depth[loop_depth] = loops_per_depth.get(loop_depth, 0) + 1
                 if loops_per_depth[loop_depth] > 1:
@@ -207,7 +180,6 @@ class ParserAgent:
                     patterns["has_repeat_until"] = True
                     patterns["repeat_until_count"] += 1
 
-                # Analyze loop body
                 for stmt in node.body:
                     analyze_node(stmt, loop_depth + 1)
 
@@ -223,19 +195,45 @@ class ParserAgent:
                 patterns["has_functions"] = True
                 func_name = node.name
 
-                # Check for recursion
-                recursion_info = self._analyze_self_calls(node.body, func_name)
+                recursion_info = self._analyze_self_calls(node, func_name)
                 if recursion_info["call_count"] > 0:
                     patterns["has_recursion"] = True
                     patterns["recursive_functions"].append(func_name)
-                    patterns["recursive_call_counts"][func_name] = recursion_info["call_count"]
+                    patterns["recursive_call_counts"][func_name] = recursion_info[
+                        "call_count"
+                    ]
                     patterns["max_recursive_calls_per_function"] = max(
                         patterns["max_recursive_calls_per_function"],
                         recursion_info["call_count"],
                     )
 
-                    if recursion_info["call_count"] == recursion_info["tail_call_count"]:
+                    if (
+                        recursion_info["call_count"]
+                        == recursion_info["tail_call_count"]
+                    ):
                         patterns["tail_recursive_functions"].append(func_name)
+
+                    patterns["estimated_branching_factor"] = max(
+                        patterns["estimated_branching_factor"],
+                        recursion_info["call_count"],
+                    )
+
+                    if recursion_info["constant_decrements"]:
+                        patterns["has_constant_decrement_recursion"] = True
+                        patterns["recursive_constant_decrements"].extend(
+                            recursion_info["constant_decrements"]
+                        )
+
+                    if recursion_info["fractional_split_factors"]:
+                        patterns["has_fractional_split_recursion"] = True
+                        patterns["fractional_split_factors"].extend(
+                            recursion_info["fractional_split_factors"]
+                        )
+
+                    if recursion_info["argument_shapes"]:
+                        patterns["recursive_argument_shapes"].extend(
+                            recursion_info["argument_shapes"]
+                        )
 
                 for stmt in node.body:
                     analyze_node(stmt, loop_depth)
@@ -256,7 +254,30 @@ class ParserAgent:
                         patterns["has_priority_queue"] = True
                         priority_queue_calls.add(call_name)
 
+            elif isinstance(node, ASTNode):
+                for attr_name, attr_value in vars(node).items():
+                    if attr_name.startswith("_") or attr_value is None:
+                        continue
+                    analyze_node(attr_value, loop_depth)
+
+            elif isinstance(node, dict):
+                for value in node.values():
+                    analyze_node(value, loop_depth)
+
+            elif isinstance(node, (list, tuple)):
+                for item in node:
+                    analyze_node(item, loop_depth)
+
         analyze_node(ast)
+
+        memo_detector = MemoizationPatternDetector()
+        memo_patterns = memo_detector.detect(ast)
+        if memo_patterns:
+            patterns.update(memo_patterns)
+            if memo_patterns.get("memo_dimensions") and not patterns.get(
+                "state_dimensions"
+            ):
+                patterns["state_dimensions"] = memo_patterns["memo_dimensions"]
 
         if call_targets:
             patterns["call_targets"] = sorted(call_targets)
@@ -265,16 +286,59 @@ class ParserAgent:
         if priority_queue_calls:
             patterns["priority_queue_calls"] = sorted(priority_queue_calls)
 
+        if patterns["recursive_constant_decrements"]:
+            patterns["recursive_constant_decrements"] = sorted(
+                {
+                    int(value)
+                    for value in patterns["recursive_constant_decrements"]
+                    if value is not None
+                }
+            )
+
+        if patterns["fractional_split_factors"]:
+            patterns["fractional_split_factors"] = sorted(
+                {
+                    int(value)
+                    for value in patterns["fractional_split_factors"]
+                    if value not in (None, 0)
+                }
+            )
+
+        patterns["estimated_branching_factor"] = max(
+            patterns["estimated_branching_factor"],
+            patterns["max_recursive_calls_per_function"],
+        )
+
+        if (
+            patterns["has_constant_decrement_recursion"]
+            and not patterns["has_fractional_split_recursion"]
+            and patterns["max_recursive_calls_per_function"] >= 2
+        ):
+            patterns["non_linear_split_recursion"] = True
+
         return patterns
 
-    def _analyze_self_calls(self, body: list, func_name: str) -> Dict[str, int]:
-        """Collect recursion metrics (total and tail calls) for a function body."""
-        from app.domain.models.ast import ASTNode, CallStmt, FuncCallExpr, ReturnStmt
+    def _analyze_self_calls(
+        self, func: SubroutineDef, func_name: str
+    ) -> Dict[str, Any]:
+        """Collect recursion metrics (call distribution + argument shapes)."""
 
-        metrics = {
+        metrics: Dict[str, Any] = {
             "call_count": 0,
             "tail_call_count": 0,
+            "constant_decrements": [],
+            "fractional_split_factors": [],
+            "constant_decrement_calls": 0,
+            "fractional_split_calls": 0,
+            "argument_shapes": [],
         }
+
+        parameters = [
+            param.name
+            for param in getattr(func, "parameters", [])
+            if getattr(param, "name", None)
+        ]
+        body = func.body
 
         def traverse(value: Any, tail_context: bool = False) -> int:
             call_total = 0
@@ -287,6 +351,11 @@ class ParserAgent:
                     metrics["call_count"] += 1
                     if tail_context:
                         metrics["tail_call_count"] += 1
+                    arg_shape = self._classify_recursive_arguments(
+                        getattr(value, "args", []), parameters, metrics
+                    )
+                    if arg_shape:
+                        metrics["argument_shapes"].append(arg_shape)
                     return 1
                 return 0
 
@@ -313,3 +382,69 @@ class ParserAgent:
             traverse(stmt, tail_context=False)
 
         return metrics
+
+    def _classify_recursive_arguments(
+        self,
+        args: Any,
+        parameter_names: List[str],
+        metrics: Dict[str, Any],
+    ) -> list[str]:
+        """Classify how each recursive argument transforms the input size."""
+
+        shapes: list[str] = []
+        if not args:
+            return shapes
+
+        for arg in args:
+            shapes.append(
+                self._categorize_recursive_argument(arg, parameter_names, metrics)
+            )
+
+        return shapes
+
+    def _categorize_recursive_argument(
+        self,
+        arg: Any,
+        parameter_names: list[str],
+        metrics: Dict[str, Any],
+    ) -> str:
+        """Identify whether the recursive call divides or decrements the problem size."""
+
+        if isinstance(arg, Var) and arg.name in parameter_names:
+            return f"{arg.name}"
+
+        if isinstance(arg, Number):
+            return "constant"
+
+        if isinstance(arg, BinOp):
+            op = str(arg.op).lower()
+            left_var = isinstance(arg.left, Var) and arg.left.name in parameter_names
+            right_number = self._extract_number_value(arg.right)
+
+            if left_var and op in {"-", "--"} and right_number is not None:
+                decrement = abs(int(right_number))
+                metrics["constant_decrements"].append(decrement)
+                metrics["constant_decrement_calls"] += 1
+                return f"{arg.left.name}-const"
+
+            if left_var and op in {"/", "//", "div"} and right_number not in (0, None):
+                metrics["fractional_split_factors"].append(int(right_number))
+                metrics["fractional_split_calls"] += 1
+                return f"{arg.left.name}/{int(right_number)}"
+
+        return "generic"
+
+    @staticmethod
+    def _extract_number_value(value: Any) -> Optional[float]:
+        """Extract numeric literal value regardless of wrapper type."""
+
+        if isinstance(value, Number):
+            try:
+                return float(value.value)
+            except (TypeError, ValueError):
+                return None
+
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        return None

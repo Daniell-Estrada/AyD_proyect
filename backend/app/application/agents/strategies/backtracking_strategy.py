@@ -24,9 +24,6 @@ class BacktrackingAnalysisStrategy(ComplexityAnalysisStrategy):
         llm_service=None,
         enable_llm_peer_review: bool = False,
     ):
-        """
-        Initialize backtracking analysis strategy.
-        """
 
         self._complexity_service = complexity_service or ComplexityAnalysisService()
         self._llm_service = llm_service
@@ -37,7 +34,7 @@ class BacktrackingAnalysisStrategy(ComplexityAnalysisStrategy):
     ) -> Tuple[Dict[str, str], List[Dict[str, Any]], Dict[str, str]]:
         """
         Analyze backtracking algorithm complexity.
-       """
+        """
 
         branching_factor = patterns.get("branching_factor", 2)
         max_depth = patterns.get("search_depth", 10)

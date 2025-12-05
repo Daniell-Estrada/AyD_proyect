@@ -1,6 +1,5 @@
 """Use cases focused on managing human-in-the-loop callbacks."""
 
-from __future__ import annotations
 
 from app.domain.models.analysis import HitlResponse
 from app.domain.repositories.interfaces import SessionRepository

@@ -35,6 +35,7 @@ REPEAT: "repeat"
 UNTIL: "until"
 EACH: "each"
 IN_KW: "in"
+DOWNTO: "downto"
 
 CALL_KW: "CALL" | "call"
 PRINT: "print"
@@ -56,12 +57,12 @@ NEIGHBORS: "neighbors"
 VAR: /(?!\b(?:for|each|in|to|do|begin|end|while|repeat|until|if|then|else|CALL|call|function|print|return|class|var|new|and|or|not|T|F|NULL|length|ceil|floor|concat|substring|strlen|Graph|Node|Edge|addNode|addEdge|neighbors)\b)[A-Za-z_][A-Za-z0-9_]*/
 
 ?statement: var_decl
-        | assignment
-        | for_loop
-        | while_loop
-        | repeat_loop
-        | if_statement
-        | call_stmt
+    | assignment
+    | for_loop
+    | while_loop
+    | repeat_loop
+    | if_statement
+    | call_stmt
 		| return_statement
 		| graph_stmt
 		| print_stmt
@@ -104,9 +105,11 @@ code_block: BEGIN suite? END    -> code_block
     | ADDNODE "(" VAR "," expression ")"    -> addnode_function
     | ADDEDGE "(" VAR "," expression "," expression ")"   -> addedge_function
     | NEIGHBORS "(" VAR "," expression ")"    -> neighbors_function
-    | VAR ("[" expression "]")+   -> array_access
+    | array_access_expr
     | VAR "[" expression RANGE expression "]"   -> array_slice
-    | VAR ("." VAR)+   -> field_access
+    | dotted_var   -> field_access
+    | field_array_access
+    | extended_field_access
     | NEW_KW VAR "(" ")"    -> new_object
     | NEW_KW GRAPH_KW "(" ")"   -> new_graph
     | VAR   -> var
@@ -116,7 +119,8 @@ tuple_expr: "(" expression ("," expression)+ ")" -> tuple_expr
 
 ?lvalue: VAR    -> lvalue_var
     | VAR ("[" indexer "]")+    -> lvalue_array
-    | VAR ("." VAR)+   -> lvalue_field
+    | dotted_var   -> lvalue_field
+    | field_array_access   -> lvalue_field_array
 
 start: program
 program: (class_def | subroutine_def | statement (NL)*)*
@@ -150,19 +154,24 @@ var_decl_item: VAR ("[" indexer "]" )+   -> array_var_decl
 assignment: lvalue ASSIGN expression
 
 ?func_call_expr: CALL_KW (VAR|ADDNODE|ADDEDGE) "(" [expression ("," expression)*] ")"   -> func_call_expr
-        | VAR "(" [expression ("," expression)*] ")" 		-> func_call_expr
-        | func_call_expr "." VAR "(" [expression ("," expression)*] ")"   -> call_method
+    | VAR "(" [expression ("," expression)*] ")" 		-> func_call_expr
+    | func_call_expr "." VAR "(" [expression ("," expression)*] ")"   -> call_method
 
 call_stmt: CALL_KW (VAR|ADDNODE|ADDEDGE) "(" [expression ("," expression)*] ")"   -> call_stmt
 
 print_stmt: PRINT "(" expression ")"    -> print_stmt
-return_statement: RETURN_KW expression?   -> return_stmt
+return_statement: RETURN_KW (expression_list | expression)?   -> return_stmt
 
-if_statement: IF "("? condition ")"? THEN code_block (ELSE code_block)?   -> if_statement
+if_statement: IF "("? condition ")"? THEN code_block else_clause?   -> if_statement
     | IF "("? condition ")"? THEN suite (ELSE suite)? END   -> if_statement
+
+else_clause: ELSE code_block
+    | ELSE if_statement
 
 for_loop: FOR VAR ASSIGN expression TO expression DO code_block   -> for_loop
     | FOR VAR ASSIGN expression TO expression DO suite END   -> for_loop
+    | FOR VAR ASSIGN expression DOWNTO expression DO code_block   -> for_loop_downto
+    | FOR VAR ASSIGN expression DOWNTO expression DO suite END   -> for_loop_downto
     | FOR EACH [VAR] VAR ASSIGN expression DO code_block            -> for_each_loop_assign
     | FOR EACH [VAR] VAR ASSIGN expression DO suite END            -> for_each_loop_assign
     | FOR EACH [VAR] VAR IN_KW expression DO code_block             -> for_each_loop_in
@@ -177,6 +186,14 @@ repeat_loop: REPEAT (code_block | suite) UNTIL "(" condition ")"    -> repeat_lo
 
 graph_stmt: ADDNODE "(" VAR "," expression ")"    -> addnode_stmt
     | ADDEDGE "(" VAR "," expression "," expression ")"   -> addedge_stmt
+
+dotted_var: VAR ("." VAR)+
+
+field_array_access: dotted_var ("[" expression "]")+
+
+array_access_expr: VAR ("[" expression "]")+   -> array_access
+
+extended_field_access: (field_array_access | array_access_expr) ("." VAR)+
 
 %import common.ESCAPED_STRING
 %import common.WS

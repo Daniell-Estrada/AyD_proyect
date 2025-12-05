@@ -8,16 +8,9 @@ from typing import Any, Dict, List, Optional
 
 import networkx as nx
 
-from app.domain.models.ast import (
-    Assignment,
-    ForEachLoop,
-    ForLoop,
-    IfElse,
-    Program,
-    ReturnStmt,
-    SubroutineDef,
-    WhileLoop,
-)
+from app.domain.models.ast import (Assignment, CallStmt, ForEachLoop, ForLoop,
+                                   FuncCallExpr, IfElse, Program, ReturnStmt,
+                                   SubroutineDef, WhileLoop)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +21,6 @@ class DiagramService:
     """
 
     def __init__(self):
-        """Initialize diagram service."""
         self.node_counter = 0
 
     def reset_counter(self):
@@ -98,17 +90,9 @@ class DiagramService:
             return str(getattr(expr, "value"))
         return str(expr)
 
-    # ===== Flowchart Generation =====
-
     def generate_flowchart(self, ast: Program) -> str:
         """
         Generate flowchart from AST.
-
-        Args:
-            ast: Program AST
-
-        Returns:
-            Mermaid flowchart string
         """
         self.reset_counter()
         graph = nx.DiGraph()
@@ -178,9 +162,7 @@ class DiagramService:
                 f"{stmt.var} = {self._expr_to_label(stmt.start)} "
                 f"to {self._expr_to_label(stmt.end)}"
             )
-            condition_id = self._register_node(
-                graph, range_label, shape="decision"
-            )
+            condition_id = self._register_node(graph, range_label, shape="decision")
             self._add_edge(graph, prev_id, condition_id, edge_label)
 
             if stmt.body:
@@ -195,9 +177,7 @@ class DiagramService:
                     )
                     first = False
             else:
-                current_id = self._register_node(
-                    graph, f"{stmt.var} loop body"
-                )
+                current_id = self._register_node(graph, f"{stmt.var} loop body")
                 self._add_edge(graph, condition_id, current_id, "iterate")
 
             self._add_edge(graph, current_id, condition_id)
@@ -209,9 +189,7 @@ class DiagramService:
             return after_loop_id
 
         elif isinstance(stmt, WhileLoop):
-            condition_id = self._register_node(
-                graph, "condition?", shape="decision"
-            )
+            condition_id = self._register_node(graph, "condition?", shape="decision")
             self._add_edge(graph, prev_id, condition_id, edge_label)
 
             if stmt.body:
@@ -236,9 +214,7 @@ class DiagramService:
             return after_loop_id
 
         elif isinstance(stmt, IfElse):
-            condition_id = self._register_node(
-                graph, "condition?", shape="decision"
-            )
+            condition_id = self._register_node(graph, "condition?", shape="decision")
             self._add_edge(graph, prev_id, condition_id, edge_label)
             merge_id = self._register_node(graph, "merge")
 
@@ -280,13 +256,10 @@ class DiagramService:
             return node_id
 
         else:
-            # Generic statement
             stmt_type = type(stmt).__name__
             node_id = self._register_node(graph, stmt_type)
             self._add_edge(graph, prev_id, node_id, edge_label)
             return node_id
-
-    # ===== Recursion Tree =====
 
     def generate_recursion_tree(
         self,
@@ -297,15 +270,6 @@ class DiagramService:
     ) -> str:
         """
         Generate recursion tree diagram.
-
-        Args:
-            func_name: Function name
-            branching_factor: Number of recursive calls
-            depth: Tree depth
-            size_reduction: How input size reduces (e.g., "n/2", "n-1")
-
-        Returns:
-            Mermaid tree diagram string
         """
         self.reset_counter()
         graph = nx.DiGraph()
@@ -335,7 +299,6 @@ class DiagramService:
             if size == "n":
                 return "n/2"
             elif "/" in size:
-                # n/2 -> n/4
                 parts = size.split("/")
                 return f"{parts[0]}/{int(parts[1])*2}"
             else:
@@ -348,39 +311,26 @@ class DiagramService:
         else:
             return size
 
-    # ===== Call Graph =====
-
     def generate_call_graph(self, ast: Program) -> str:
         """
         Generate function call graph.
-
-        Args:
-            ast: Program AST
-
-        Returns:
-            Mermaid graph string
         """
         lines = ["graph LR"]
 
-        # Extract functions
-        functions = [
-            stmt for stmt in ast.statements if isinstance(stmt, SubroutineDef)
-        ]
+        functions = [stmt for stmt in ast.statements if isinstance(stmt, SubroutineDef)]
 
         for func in functions:
             func_name = func.name or "anonymous"
 
-            # Find function calls in body
             called_funcs = self._extract_function_calls(func.body)
 
             for called in called_funcs:
-                lines.append(f'    {func_name} --> {called}')
+                lines.append(f"    {func_name} --> {called}")
 
         return "\n".join(lines)
 
     def _extract_function_calls(self, body: List[Any]) -> List[str]:
         """Extract function names called in body."""
-        from app.domain.models.ast import CallStmt, FuncCallExpr
 
         calls = []
 
@@ -392,19 +342,9 @@ class DiagramService:
 
         return calls
 
-    # ===== Architecture Diagram =====
-
-    def generate_architecture_diagram(
-        self, components: List[Dict[str, Any]]
-    ) -> str:
+    def generate_architecture_diagram(self, components: List[Dict[str, Any]]) -> str:
         """
         Generate system architecture diagram.
-
-        Args:
-            components: List of component definitions with dependencies
-
-        Returns:
-            Mermaid C4 or flowchart diagram string
         """
         lines = ["graph TB"]
 
@@ -413,7 +353,6 @@ class DiagramService:
             comp_name = comp["name"]
             comp_type = comp.get("type", "component")
 
-            # Different shapes for different types
             if comp_type == "agent":
                 lines.append(f'    {comp_id}[("{comp_name}")]')
             elif comp_type == "service":
@@ -423,25 +362,14 @@ class DiagramService:
             else:
                 lines.append(f'    {comp_id}["{comp_name}"]')
 
-            # Add dependencies
             for dep in comp.get("depends_on", []):
-                lines.append(f'    {comp_id} --> {dep}')
+                lines.append(f"    {comp_id} --> {dep}")
 
         return "\n".join(lines)
 
-    # ===== Complexity Visualization =====
-
-    def generate_complexity_comparison(
-        self, complexities: Dict[str, str]
-    ) -> str:
+    def generate_complexity_comparison(self, complexities: Dict[str, str]) -> str:
         """
         Generate visual comparison of complexities.
-
-        Args:
-            complexities: Dict mapping case names to complexity notations
-
-        Returns:
-            Mermaid diagram string
         """
         lines = ["graph LR"]
         lines.append(f'    Algorithm["Algorithm"]')
@@ -449,25 +377,22 @@ class DiagramService:
         for case, complexity in complexities.items():
             case_id = case.replace(" ", "_")
             lines.append(f'    {case_id}["{case}: {complexity}"]')
-            lines.append(f'    Algorithm --> {case_id}')
+            lines.append(f"    Algorithm --> {case_id}")
 
         return "\n".join(lines)
 
-    # ===== NetworkX to Mermaid =====
-
-    def networkx_to_mermaid(
-        self, G: nx.DiGraph, graph_type: str = "graph TD"
-    ) -> str:
+    def networkx_to_mermaid(self, G: nx.DiGraph, graph_type: str = "graph TD") -> str:
         """
         Convert NetworkX graph to Mermaid diagram.
-
-        Args:
-            G: NetworkX directed graph
-            graph_type: Mermaid graph type (e.g., "graph TD", "flowchart LR")
-
-        Returns:
-            Mermaid diagram string
         """
+        
+        config = """%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#4F46E5",
+    ...
+  }
+}}%%"""
         lines = [graph_type]
 
         for node, data in G.nodes(data=True):
@@ -478,8 +403,8 @@ class DiagramService:
         for u, v, edge_data in G.edges(data=True):
             edge_label = edge_data.get("label")
             if edge_label:
-                lines.append(f'    {u} -->|{edge_label}| {v}')
+                lines.append(f"    {u} -->|{edge_label}| {v}")
             else:
-                lines.append(f'    {u} --> {v}')
+                lines.append(f"    {u} --> {v}")
 
-        return "\n".join(lines)
+        return config + "\n".join(lines)

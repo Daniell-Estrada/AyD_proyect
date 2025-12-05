@@ -1,25 +1,17 @@
-"""Workflow state persistence utilities for LangGraph orchestration.
-
-Provides Redis-backed persistence with graceful in-memory fallback so
-long-running analyses can resume or be inspected mid-flight. The design
-follows the Repository pattern to keep storage concerns outside of the
-workflow and agent layers, satisfying the Single Responsibility Principle.
+"""
+Module providing persistence for workflow state snapshots using
+in-memory or Redis-backed stores.
 """
 
-from __future__ import annotations
-
-from collections import deque
-from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
 import json
 import logging
 import threading
+from collections import deque
+from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Optional, Protocol
 
-try:
-    import redis
-except ImportError:  # pragma: no cover - optional dependency
-    redis = None  # type: ignore[assignment]
+import redis
 
 from app.application.agents.state import AgentState
 from app.shared.config import settings
@@ -161,7 +153,7 @@ def create_workflow_state_store() -> WorkflowStateStore:
             settings.redis_namespace,
         )
         return redis_store
-    except Exception as exc:  # pragma: no cover - network dependent
+    except Exception as exc:  
         logger.warning(
             "Redis workflow store unavailable (%s); falling back to in-memory store",
             exc,

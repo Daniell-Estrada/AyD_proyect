@@ -4,7 +4,7 @@ Separated from the main complexity service for clarity and reuse.
 """
 
 import logging
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import networkx as nx
 
@@ -84,11 +84,13 @@ class RecursionTreeBuilder:
 
         for node_id, data in G.nodes(data=True):
             label = data.get("label", f"{func_name}(?)")
-            safe_label = label.replace('"', '&quot;')
+            safe_label = label.replace('"', "&quot;")
             lines.append(f'    {node_id}["{safe_label}"]')
 
         for parent, child in G.edges():
             lines.append(f"    {parent} --> {child}")
 
-        lines.append("    classDef default fill:#e1f5ff,stroke:#0066cc,stroke-width:2px")
+        lines.append(
+            "    classDef default fill:#e1f5ff,stroke:#0066cc,stroke-width:2px"
+        )
         return "\n".join(lines)

@@ -1,7 +1,5 @@
 """Application use cases for session lifecycle management."""
 
-from __future__ import annotations
-
 from typing import List, Optional
 
 from app.domain.models.analysis import Session, SessionStatus

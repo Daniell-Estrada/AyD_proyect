@@ -17,15 +17,6 @@ class GreedyPatternDetector(PatternDetector):
     def detect(self, node: Any) -> Dict[str, Any]:
         """
         Detect greedy algorithm patterns.
-
-        Args:
-            node: AST node to analyze
-
-        Returns:
-            Dictionary with keys:
-                - has_greedy_pattern: boolean
-                - has_sorting: boolean indicating presence of sort operations
-                - has_selection: boolean indicating greedy selection
         """
         result = {
             "has_greedy_pattern": False,
@@ -33,11 +24,4 @@ class GreedyPatternDetector(PatternDetector):
             "has_selection": False,
         }
 
-        # Simplified detection: look for common greedy indicators
-        # In production: analyze function calls for sort(), max(), min()
-        # and examine conditional selection patterns
-        
-        # Placeholder: more sophisticated analysis needed
-        # This would require analyzing function calls and variable usage patterns
-        
         return result

@@ -76,12 +76,16 @@ def pseudocode_contains_recursion(pseudocode: str) -> bool:
     if not pseudocode:
         return False
 
-    function_pattern = re.compile(r"function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", flags=re.IGNORECASE)
+    function_pattern = re.compile(
+        r"function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", flags=re.IGNORECASE
+    )
 
     for match in function_pattern.finditer(pseudocode):
         name = match.group(1)
-        body = pseudocode[match.end():]
-        call_pattern = re.compile(rf"\b(?:call\s+)?{re.escape(name)}\s*\(", flags=re.IGNORECASE)
+        body = pseudocode[match.end() :]
+        call_pattern = re.compile(
+            rf"\b(?:call\s+)?{re.escape(name)}\s*\(", flags=re.IGNORECASE
+        )
         if call_pattern.search(body):
             return True
 
@@ -95,24 +99,12 @@ class TranslatorAgent(BaseAgent):
     """
 
     def __init__(self, llm_service: LLMService):
-        """
-        Initialize Translator Agent.
-
-        Args:
-            llm_service: LLM service instance
-        """
         super().__init__(name="TranslatorAgent", llm_service=llm_service)
         self.llm_service = llm_service
 
     def execute(self, state: AgentState) -> AgentState:
         """
         Execute translation from natural language to pseudocode.
-
-        Args:
-            state: Current agent state
-
-        Returns:
-            Updated state with translated pseudocode
         """
         logger.info(f"{self.name}: Starting translation")
 
@@ -123,7 +115,9 @@ class TranslatorAgent(BaseAgent):
         if feedback:
             logger.info("%s: Applying reviewer feedback", self.name)
             try:
-                recursion_required = needs_recursion(feedback) or needs_recursion(user_input)
+                recursion_required = needs_recursion(feedback) or needs_recursion(
+                    user_input
+                )
                 system_prompt = self._build_revision_system_prompt(recursion_required)
                 user_prompt = self._build_revision_user_prompt(
                     previous_pseudocode,
@@ -144,10 +138,13 @@ class TranslatorAgent(BaseAgent):
                         "%s: Recursion requested in feedback; retrying revision with stronger emphasis",
                         self.name,
                     )
-                    system_prompt = self._build_revision_system_prompt(recursion_required=True)
+                    system_prompt = self._build_revision_system_prompt(
+                        recursion_required=True
+                    )
                     user_prompt = self._build_revision_user_prompt(
                         previous_pseudocode,
-                        feedback + "\nAsegúrate de incluir una llamada recursiva explícita.",
+                        feedback
+                        + "\nAsegúrate de incluir una llamada recursiva explícita.",
                         enforce_recursion=True,
                     )
                     response_text, metrics = self._invoke_llm(
@@ -155,12 +152,16 @@ class TranslatorAgent(BaseAgent):
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                     )
-                    pseudocode_retry, reasoning_retry = self._parse_response(response_text)
+                    pseudocode_retry, reasoning_retry = self._parse_response(
+                        response_text
+                    )
                     if pseudocode_contains_recursion(pseudocode_retry):
                         pseudocode, reasoning = pseudocode_retry, reasoning_retry
 
                 state["translated_pseudocode"] = pseudocode
-                state["translation_reasoning"] = reasoning or f"Applied reviewer feedback: {feedback}"
+                state["translation_reasoning"] = (
+                    reasoning or f"Applied reviewer feedback: {feedback}"
+                )
                 state["current_stage"] = "translation_complete"
                 state["user_feedback"] = None
 
@@ -173,34 +174,34 @@ class TranslatorAgent(BaseAgent):
                 return state
 
             except Exception as exc:
-                logger.error("%s: Failed to apply reviewer feedback: %s", self.name, exc)
+                logger.error(
+                    "%s: Failed to apply reviewer feedback: %s", self.name, exc
+                )
                 self._append_error(state, f"Failed to apply reviewer feedback: {exc}")
                 state["status"] = "failed"
                 state["user_feedback"] = None
                 return state
 
-        # Skip translation if the input already resembles pseudocode
         if self._looks_like_pseudocode(user_input):
-            logger.info(f"{self.name}: Input auto-detected as pseudocode, skipping translation")
+            logger.info(
+                f"{self.name}: Input auto-detected as pseudocode, skipping translation"
+            )
             state["translated_pseudocode"] = user_input
             state["translation_reasoning"] = "Input auto-detected as pseudocode"
             state["current_stage"] = "translation_complete"
             state["user_feedback"] = None
             return state
 
-        # Build prompts
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(user_input)
 
         try:
-            # Invoke LLM
             response_text, metrics = self._invoke_llm(
                 state=state,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
 
-            # Parse response
             pseudocode, reasoning = self._parse_response(response_text)
 
             recursion_needed = needs_recursion(user_input)
@@ -212,7 +213,9 @@ class TranslatorAgent(BaseAgent):
                 )
 
                 system_prompt = self._build_system_prompt(recursion_required=True)
-                user_prompt = self._build_user_prompt(user_input, enforce_recursion=True)
+                user_prompt = self._build_user_prompt(
+                    user_input, enforce_recursion=True
+                )
 
                 response_text, metrics = self._invoke_llm(
                     state=state,
@@ -230,7 +233,6 @@ class TranslatorAgent(BaseAgent):
                         self.name,
                     )
 
-            # Update state
             state["translated_pseudocode"] = pseudocode
             state["translation_reasoning"] = reasoning
             state["current_stage"] = "translation_complete"
@@ -263,7 +265,6 @@ class TranslatorAgent(BaseAgent):
 
         lowered = stripped.lower()
 
-        # Quick rejection if the text is a single short sentence
         if len(stripped.split()) < 6 and "function" not in lowered:
             return False
 
@@ -292,7 +293,6 @@ class TranslatorAgent(BaseAgent):
 
         indicator_hits = sum(1 for token in code_indicators if token in lowered)
 
-        # Structural cues: multiple lines, indentation, or numbered steps
         has_structural_cues = any(
             line.startswith(("function", "procedure", "class", "for", "while", "if"))
             or "<-" in line
@@ -300,99 +300,104 @@ class TranslatorAgent(BaseAgent):
             for line in lines
         )
 
-        # Presence of code-like punctuation
-        has_code_symbols = any(symbol in stripped for symbol in ("<-", ":=", "{}", "()", "[]"))
+        has_code_symbols = any(
+            symbol in stripped for symbol in ("<-", ":=", "{}", "()", "[]")
+        )
 
         long_enough = len(lines) >= 2 or len(stripped) > 120
 
-        return (indicator_hits >= 3 and long_enough) or (has_structural_cues and (indicator_hits >= 2 or has_code_symbols))
+        return (indicator_hits >= 3 and long_enough) or (
+            has_structural_cues and (indicator_hits >= 2 or has_code_symbols)
+        )
 
     def _build_system_prompt(self, recursion_required: bool = False) -> str:
         """Build system prompt defining the translator's role."""
         base_prompt = """You are an expert algorithm translator. Your task is to convert natural language algorithm descriptions into structured pseudocode following a strict grammar.
 
-**Grammar Rules (must follow exactly):**
-- Use `function name(parameters)` for function definitions, followed by a `begin ... end` code block.
-- Every control structure must wrap its body in `begin ... end`, even if the body is one line:
-  - `if (condition) then` **begin ... end**, and if an `else` exists it must be `else` **begin ... end**.
-  - `for ... do` **begin ... end**.
-  - `while ... do` **begin ... end**.
-  - `repeat` **begin ... end** `until (condition)`.
-- Use `<-` for assignment (e.g., `x <- 5`).
-- Use `for var <- start to end do` for ranged loops. You may also use `for each ... in ... do` as supported by the grammar; wrap every loop body in `begin ... end`.
-- Use `while (condition) do` for while loops.
-- Use `if (condition) then ... else ...` for conditionals, with the branch code blocks as noted above.
-- Use `return expression` for return statements.
-- Use `var name` for variable declarations before clause begin blocks of functions (e.g., `var count` or `var count, list[1..n], etc.`).
-- Use `A[1..n]` for array declarations.
-- Use `class Name { field1 field2 }` for class definitions.
-- Use `Graph G` for graph declarations and `addNode(G, node)`, `addEdge(G, from, to)` for graph operations.
-- Avoid dotted array indexing that mixes dots and brackets (e.g., `G.adj[i][j]` or `obj.field[k]`), because the grammar does not allow brackets after a dotted field. Use either pure bracketed arrays (`adj[i][j]`) or dotted field access without brackets (`graph.adj`).
-- Use only ASCII operators: `!=` instead of `≠`, and represent infinity with a large constant (e.g., `INF <- 10^9`).
-- Do not use reserved keywords as identifiers (e.g., avoid `end` as a variable name); prefer neutral names like `target`, `dest`, etc.
-- Do not nest function definitions; declare any helper functions at the top level, separate from the main function.
-- Do **not** emit Markdown fences or commentary inside the pseudocode. No `//` comments.
-- Never emit dotted indexing that precedes a bracket (e.g., no `G.adj[u][k]` or `obj.field[i]`). If you need nested arrays, declare them as arrays directly (`adj[1..n][1..m]`) and index them without dots.
-- When iterating adjacency, use explicit lengths and indices (e.g., `deg <- len(adj[u])`; `for k <- 1 to deg do` followed by `neighbor <- adj[u][k]`).
-- Multidimensional arrays are allowed (e.g., `matrix[1..n][1..m]`); compute scalar bounds first (e.g., `n <- len(nodes)`, `m <- maxDegree`) and use those scalars in declarations (`adj[1..n][1..m]`).
-- Avoid dotted expressions inside array bounds; compute scalar bounds before declaring arrays.
+        **Grammar Rules (must follow exactly):**
+        - Use `function name(parameters)` for function definitions, followed by a `begin ... end` code block.
+        - Every control structure must wrap its body in `begin ... end`, even if the body is one line:
+          - `if (condition) then` **begin ... end**, and if an `else` exists it must be `else` **begin ... end**.
+          - `for ... do` **begin ... end**.
+          - `while ... do` **begin ... end**.
+          - `repeat` **begin ... end** `until (condition)`.
+        - Use `<-` for assignment (e.g., `x <- 5`).
+        - Use `for var <- start to end do` for ranged loops. You may also use `for each ... in ... do` as supported by the grammar; wrap every loop body in `begin ... end`.
+        - Use `while (condition) do` for while loops.
+        - Use `if (condition) then ... else ...` for conditionals, with the branch code blocks as noted above.
+        - Use `return expression` for return statements.
+        - Use `var name` for variable declarations before clause begin blocks of functions (e.g., `var count` or `var count, list[1..n], etc.`).
+        - Use `A[1..n]` for array declarations.
+        - Use `class Name { field1 field2 }` for class definitions.
+        - Use `Graph G` for graph declarations and `addNode(G, node)`, `addEdge(G, from, to)` for graph operations.
+        - Avoid dotted array indexing that mixes dots and brackets (e.g., `G.adj[i][j]` or `obj.field[k]`), because the grammar does not allow brackets after a dotted field. Use either pure bracketed arrays (`adj[i][j]`) or dotted field access without brackets (`graph.adj`).
+        - Use only ASCII operators: `!=` instead of `≠`, and represent infinity with a large constant (e.g., `INF <- 10^9`).
+        - Do not use reserved keywords as identifiers (e.g., avoid `end` as a variable name); prefer neutral names like `target`, `dest`, etc.
+        - Do not nest function definitions; declare any helper functions at the top level, separate from the main function.
+        - Do **not** emit Markdown fences or commentary inside the pseudocode. No `//` comments.
+        - Never emit dotted indexing that precedes a bracket (e.g., no `G.adj[u][k]` or `obj.field[i]`). If you need nested arrays, declare them as arrays directly (`adj[1..n][1..m]`) and index them without dots.
+        - When iterating adjacency, use explicit lengths and indices (e.g., `deg <- len(adj[u])`; `for k <- 1 to deg do` followed by `neighbor <- adj[u][k]`).
+        - Multidimensional arrays are allowed (e.g., `matrix[1..n][1..m]`); compute scalar bounds first (e.g., `n <- len(nodes)`, `m <- maxDegree`) and use those scalars in declarations (`adj[1..n][1..m]`).
+        - Avoid dotted expressions inside array bounds; compute scalar bounds before declaring arrays.
 
-**Output Format (exact):**
-1. Pseudocode only.
-2. `---REASONING---` on its own line.
-3. Brief reasoning.
+        **Output Format (exact):**
+        1. Pseudocode only.
+        2. `---REASONING---` on its own line.
+        3. Brief reasoning.
 
-**Example (shows required blocks):**
-```
-function findMax(A[1..n])
-begin
-    var max
-    max <- A[1]
-    for i <- 2 to n do
-    begin
-        if (A[i] > max) then
+        **Example (shows required blocks):**
+        ```
+        function findMax(A[1..n])
         begin
-            max <- A[i]
+            var max
+            max <- A[1]
+            for i <- 2 to n do
+            begin
+                if (A[i] > max) then
+                begin
+                    max <- A[i]
+                end
+            end
+            return max
         end
-    end
-    return max
-end
-```
----REASONING---
-Translated as an iterative algorithm with a single loop to traverse the array. Used array indexing A[i] and comparison to find maximum value.
-"""
+        ```
+        ---REASONING---
+        Translated as an iterative algorithm with a single loop to traverse the array. Used array indexing A[i] and comparison to find maximum value.
+        """
 
         if recursion_required:
             base_prompt += """
 
-**Additional Requirements:**
-- The pseudocode must explicitly model the recurrence using recursive function calls.
-- Do not replace the recursive expansion with iterative loops or simulations of the tree.
-- When a recurrence tree is requested, ensure there is at least one function that calls itself (directly or via helper) to represent the recursive structure.
-"""
+        **Additional Requirements:**
+        - The pseudocode must explicitly model the recurrence using recursive function calls.
+        - Do not replace the recursive expansion with iterative loops or simulations of the tree.
+        - When a recurrence tree is requested, ensure there is at least one function that calls itself (directly or via helper) to represent the recursive structure.
+        """
 
         return base_prompt
 
-    def _build_user_prompt(self, user_input: str, enforce_recursion: bool = False) -> str:
+    def _build_user_prompt(
+        self, user_input: str, enforce_recursion: bool = False
+    ) -> str:
         """Build user prompt with the algorithm description."""
         prompt = f"""Translate the following algorithm description into structured pseudocode:
 
-{user_input}
+        {user_input}
 
-Hard requirements:
-- Use `begin`/`end` blocks for every control structure body (both THEN and ELSE blocks, every loop body, repeat/until body).
-- No Markdown fences, no extra commentary inside the pseudocode.
-- Do not mix dots and brackets (no `G.adj[u][k]` or `obj.field[i]`). If you need nested arrays, declare them directly (`adj[1..n][1..m]`) and index without dots; dotted field access without brackets is allowed (`graph.adj`).
-- Multidimensional arrays are allowed (e.g., `matrix[1..n][1..m]`). Prefer scalar bounds computed first (e.g., `n <- len(nodes)`, `m <- maxDegree`) and then declare (`adj[1..n][1..m]`).
-- Avoid dotted expressions inside array bounds; compute scalar bounds before declaring arrays. When data has multiple fields, you may use parallel arrays (`edgeTo[k]`, `edgeW[k]`) instead of dotted field access if needed for clarity.
+        Hard requirements:
+        - Use `begin`/`end` blocks for every control structure body (both THEN and ELSE blocks, every loop body, repeat/until body).
+        - No Markdown fences, no extra commentary inside the pseudocode.
+        - Do not mix dots and brackets (no `G.adj[u][k]` or `obj.field[i]`). If you need nested arrays, declare them directly (`adj[1..n][1..m]`) and index without dots; dotted field access without brackets is allowed (`graph.adj`).
+        - Multidimensional arrays are allowed (e.g., `matrix[1..n][1..m]`). Prefer scalar bounds computed first (e.g., `n <- len(nodes)`, `m <- maxDegree`) and then declare (`adj[1..n][1..m]`).
+        - Avoid dotted expressions inside array bounds; compute scalar bounds before declaring arrays. When data has multiple fields, you may use parallel arrays (`edgeTo[k]`, `edgeW[k]`) instead of dotted field access if needed for clarity.
 
-Return the pseudocode, then `---REASONING---`, then a brief explanation."""
+        Return the pseudocode, then `---REASONING---`, then a brief explanation."""
 
         if enforce_recursion:
             prompt += """
 
-Additional constraint: The pseudocode must use recursion to build the recurrence tree. Avoid while/for loops that merely iterate over tree levels; instead, express each recursive level as separate function calls following the recurrence relation.
-"""
+        Additional constraint: The pseudocode must use recursion to build the recurrence tree. Avoid while/for loops that merely iterate over tree levels; instead, express each recursive level as separate function calls following the recurrence relation.
+        """
 
         return prompt
 
@@ -431,12 +436,6 @@ Additional constraint: The pseudocode must use recursion to build the recurrence
     def _parse_response(self, response_text: str) -> tuple[str, str]:
         """
         Parse LLM response into pseudocode and reasoning.
-
-        Args:
-            response_text: Raw LLM response
-
-        Returns:
-            Tuple of (pseudocode, reasoning)
         """
         if "---REASONING---" in response_text:
             parts = response_text.split("---REASONING---", 1)
@@ -446,10 +445,8 @@ Additional constraint: The pseudocode must use recursion to build the recurrence
             pseudocode = response_text.strip()
             reasoning = "No explicit reasoning provided"
 
-        # Clean pseudocode (remove markdown code fences if present)
         if pseudocode.startswith("```"):
             lines = pseudocode.split("\n")
-            # Remove first and last line (code fences)
             pseudocode = "\n".join(lines[1:-1]).strip()
 
         pseudocode = self._strip_line_comments(pseudocode)

@@ -1,19 +1,26 @@
 import { useStore } from "../../../lib/store";
-import { CheckCircle, Circle, Loader2, XCircle, PauseCircle } from "lucide-react";
+import {
+  CheckCircle,
+  Circle,
+  Loader2,
+  XCircle,
+  PauseCircle,
+} from "lucide-react";
 import { AGENT_STAGES } from "../../../shared/constants";
 
 interface AgentProgressProps {
   hasActiveSession?: boolean;
 }
 
-export default function AgentProgress({ hasActiveSession = false }: AgentProgressProps) {
+export default function AgentProgress({
+  hasActiveSession = false,
+}: AgentProgressProps) {
   const { agentEvents } = useStore();
 
   const activeStageKey = [...agentEvents]
     .reverse()
     .find((event) => event.status === "started")?.stage;
 
-  // Get status for each agent
   const getAgentStatus = (agentStageKey: string) => {
     const events = agentEvents.filter((e) => e.stage === agentStageKey);
     if (events.length === 0) {
@@ -43,7 +50,6 @@ export default function AgentProgress({ hasActiveSession = false }: AgentProgres
     return activeStageKey === agentStageKey ? "started" : "pending";
   };
 
-  // Get icon for agent status
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "started":
@@ -57,7 +63,6 @@ export default function AgentProgress({ hasActiveSession = false }: AgentProgres
     }
   };
 
-  // Get color for status
   const getStatusColor = (status: string) => {
     switch (status) {
       case "started":
@@ -81,10 +86,8 @@ export default function AgentProgress({ hasActiveSession = false }: AgentProgres
 
             return (
               <div key={stage.name} className="flex items-center gap-2 flex-1">
-                {/* Agent step */}
                 <div className="flex items-center gap-2">
                   {getStatusIcon(status)}
-                  {/* Render the stage icon to visually differentiate each agent. */}
                   <StageIcon className="h-4 w-4 text-muted-foreground" />
                   <span
                     className={`text-sm font-medium ${getStatusColor(status)}`}

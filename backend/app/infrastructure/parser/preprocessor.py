@@ -1,16 +1,12 @@
-"""Utility helpers to normalize and validate pseudocode before parsing.
-
-The Lark grammar is intentionally strict to guarantee deterministic ASTs,
-but real-world pseudocode tends to mix Unicode arrows, Pascal style
-assignments (`:=`), or uppercase keywords.  The normalizer smooths out
-those inconsistencies without mutating the program semantics so the
-parser can operate on a clean source string.
+"""
+Preprocess and normalize pseudocode input before parsing.
+This module handles tasks such as standardizing assignment operators,
+normalizing keyword casing, rewriting certain syntactic constructs,
+and emitting warnings for non-fatal issues.
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 
@@ -36,7 +32,6 @@ class PseudocodeNormalizer:
     _ASSIGNMENT_TOKENS = ("←", "<-", ":=")
 
     _KEYWORD_MAP = {
-        # Structural keywords
         "function": "function",
         "begin": "begin",
         "end": "end",
@@ -53,7 +48,6 @@ class PseudocodeNormalizer:
         "while": "while",
         "repeat": "repeat",
         "until": "until",
-        # Logical operators and built-ins
         "and": "and",
         "or": "or",
         "not": "not",
@@ -130,8 +124,12 @@ class PseudocodeNormalizer:
             line = line.replace("\t", "    ")
             line = self._replace_assignment_tokens(line)
             line = self._standardize_keywords(line)
-            current_function_params = self._maybe_capture_function_params(line, current_function_params)
-            line, descriptor_warning = self._rewrite_for_each_descriptor(line, current_function_params)
+            current_function_params = self._maybe_capture_function_params(
+                line, current_function_params
+            )
+            line, descriptor_warning = self._rewrite_for_each_descriptor(
+                line, current_function_params
+            )
             if descriptor_warning:
                 warnings.append(ParserWarning(message=descriptor_warning, line=idx))
             line = self._ensure_call_prefix(line, idx, warnings)
@@ -139,8 +137,9 @@ class PseudocodeNormalizer:
 
             if "<-" not in line:
                 continue
-            # Warn about uncommon assignment glyphs that were replaced
-            if any(token in raw_line for token in self._ASSIGNMENT_TOKENS if token != "<-"):
+            if any(
+                token in raw_line for token in self._ASSIGNMENT_TOKENS if token != "<-"
+            ):
                 warnings.append(
                     ParserWarning(
                         message="Normalized assignment operator to '<-'",
@@ -290,9 +289,7 @@ class PseudocodeNormalizer:
                 iterable = f"neighbors({collection})"
 
         rewritten = f"{indent}for each {var_name} in {iterable} do"
-        message = (
-            f"Reescritura de bucle 'for each {descriptor} {var_name} of ...' a forma estándar"
-        )
+        message = f"Reescritura de bucle 'for each {descriptor} {var_name} of ...' a forma estándar"
         return rewritten, message
 
     def _select_graph_parameter(self, params: List[str]) -> Optional[str]:

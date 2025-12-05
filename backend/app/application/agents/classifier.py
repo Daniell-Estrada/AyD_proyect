@@ -1,7 +1,9 @@
 """
-Classifier Agent - Classifies algorithm paradigm based on AST analysis.
-Implements dual classification: deterministic pattern detection + LLM validation.
-Follows Single Responsibility Principle.
+Classifier Agent for Algorithm Paradigm Classification with Dual Approach
+This module defines the ClassifierAgent which classifies algorithmic paradigms
+using both deterministic methods based on AST pattern analysis and LLM-based
+heuristic validation. The agent integrates with ComplexityAnalysisService for
+deterministic classification and utilizes LLMService for probabilistic validation.
 """
 
 import json
@@ -27,10 +29,6 @@ class ClassifierAgent(BaseAgent):
         llm_service: LLMService,
         complexity_service: ComplexityAnalysisService = None,
     ):
-        """
-        Initialize Classifier Agent with dual classification capability.
-
-        """
         super().__init__(name="ClassifierAgent", llm_service=llm_service)
         self.llm_service = llm_service
         self.complexity_service = complexity_service or ComplexityAnalysisService()
@@ -96,6 +94,19 @@ class ClassifierAgent(BaseAgent):
                     )
                 )
 
+                (
+                    final_paradigm,
+                    final_confidence,
+                    final_reasoning,
+                ) = self._enforce_consistency(
+                    patterns=patterns,
+                    deterministic=deterministic_paradigm,
+                    heuristic=heuristic_paradigm,
+                    paradigm=final_paradigm,
+                    confidence=final_confidence,
+                    reasoning=final_reasoning,
+                )
+
                 if (not parsed_cleanly) and (
                     not state.get("classification_retry_performed")
                 ):
@@ -118,6 +129,19 @@ class ClassifierAgent(BaseAgent):
             final_paradigm = deterministic_paradigm
             final_confidence = 0.9
             final_reasoning = f"Deterministic classification based on AST patterns: {deterministic_paradigm}"
+
+        (
+            final_paradigm,
+            final_confidence,
+            final_reasoning,
+        ) = self._enforce_consistency(
+            patterns=patterns,
+            deterministic=deterministic_paradigm,
+            heuristic=heuristic_paradigm,
+            paradigm=final_paradigm,
+            confidence=final_confidence,
+            reasoning=final_reasoning,
+        )
 
         state["paradigm"] = final_paradigm
         state["paradigm_confidence"] = final_confidence
@@ -254,6 +278,7 @@ class ClassifierAgent(BaseAgent):
 
         Classify algorithms into paradigms:
         - divide_and_conquer
+        - branching_recursion
         - dynamic_programming
         - greedy
         - backtracking
@@ -311,35 +336,74 @@ class ClassifierAgent(BaseAgent):
     def _enforce_consistency(
         self,
         patterns: Dict[str, Any],
+        deterministic: str,
         heuristic: str,
         paradigm: str,
         confidence: float,
         reasoning: str,
     ) -> tuple[str, float, str]:
-        """
-        Legacy method: Reconcile LLM output with structural patterns when they conflict.
-        """
+        """Apply structural arbitration after probabilistic resolution."""
+
+        candidate = paradigm or heuristic or deterministic or "unknown"
+        updated_reasoning = reasoning
+        branch_struct = self._is_branching_recursion(patterns)
+
+        if branch_struct and candidate != "branching_recursion":
+            logger.info(
+                "%s: Promoting paradigm to branching_recursion based on structural evidence",
+                self.name,
+            )
+            candidate = "branching_recursion"
+            confidence = max(confidence, 0.8)
+            updated_reasoning = (
+                "Structural recursion metadata (constant decrements + branching "
+                "factor >= 2) requires branching_recursion classification. "
+                f"Previous reasoning: {reasoning}"
+            )
+            return candidate, confidence, updated_reasoning
+
+        if candidate == "divide_and_conquer" and not self._supports_divide_and_conquer(
+            patterns
+        ):
+            fallback = (
+                deterministic
+                if deterministic not in {None, "", "unknown"}
+                else heuristic or "recursion"
+            )
+            logger.info(
+                "%s: Downgrading divide_and_conquer to %s due to missing balanced split evidence",
+                self.name,
+                fallback,
+            )
+            candidate = fallback
+            confidence = min(confidence, 0.8)
+            updated_reasoning = (
+                "Balanced split evidence not found (no fractional division). "
+                f"Switching to {fallback}. Original reasoning: {reasoning}"
+            )
 
         if (
             patterns.get("has_recursion")
-            and paradigm in {"iterative", "simple"}
+            and candidate in {"iterative", "simple"}
             and heuristic
-            and heuristic != paradigm
+            and heuristic != candidate
         ):
             logger.info(
-                "%s: Overriding LLM classification '%s' due to detected recursion",
+                "%s: Overriding non-recursive prediction due to recursion evidence",
                 self.name,
-                paradigm,
             )
             adjusted_reasoning = f"Override to {heuristic} because AST shows recursion. Original reasoning: {reasoning}"
             return heuristic, max(confidence, 0.6), adjusted_reasoning
 
-        return paradigm, confidence, reasoning
+        return candidate, confidence, updated_reasoning
 
     def _heuristic_classification(self, patterns: Dict[str, Any]) -> str:
         """
         Use pattern-based heuristics for classification.
         """
+        if self._is_branching_recursion(patterns):
+            return "branching_recursion"
+
         if patterns.get("has_recursion"):
             call_counts = patterns.get("recursive_call_counts", {})
             max_calls = max(call_counts.values(), default=1)
@@ -364,6 +428,53 @@ class ClassifierAgent(BaseAgent):
         else:
             return "simple"
 
+    @staticmethod
+    def _is_branching_recursion(patterns: Dict[str, Any]) -> bool:
+        if not patterns:
+            return False
+
+        branching_factor = patterns.get("estimated_branching_factor") or patterns.get(
+            "max_recursive_calls_per_function", 0
+        )
+        if branching_factor < 2:
+            return False
+
+        constant_flag = patterns.get("has_constant_decrement_recursion")
+        non_linear = patterns.get("non_linear_split_recursion")
+        fractional_flag = patterns.get("has_fractional_split_recursion")
+
+        return bool((constant_flag or non_linear) and not fractional_flag)
+
+    @staticmethod
+    def _supports_divide_and_conquer(patterns: Dict[str, Any]) -> bool:
+        if not patterns or not patterns.get("has_recursion"):
+            return False
+
+        fractional_flag = bool(patterns.get("has_fractional_split_recursion"))
+        detector_flag = bool(patterns.get("is_divide_and_conquer"))
+        division_factor = patterns.get("division_factor")
+        fractional_factors = patterns.get("fractional_split_factors") or []
+        fractional_evidence = bool(
+            detector_flag
+            or fractional_flag
+            or fractional_factors
+            or (division_factor not in (None, 0, 1))
+        )
+
+        if fractional_evidence:
+            return True
+
+        call_targets = patterns.get("call_targets") or []
+        sorting_calls = patterns.get("sorting_calls") or []
+        merge_call = any("merge" in (name or "").lower() for name in call_targets)
+        merge_stage = merge_call or any(
+            "merge" in (name or "").lower() for name in sorting_calls
+        )
+        has_sorting = bool(patterns.get("has_sorting"))
+        branching_calls = (patterns.get("max_recursive_calls_per_function") or 0) >= 2
+
+        return bool(branching_calls and (merge_stage or has_sorting))
+
     def _build_system_prompt(self) -> str:
         """Build system prompt for paradigm classification."""
         return """You are an expert algorithm analyst specializing in paradigm classification.
@@ -374,9 +485,10 @@ class ClassifierAgent(BaseAgent):
             3. **greedy**: Algorithms that make locally optimal choices (e.g., Dijkstra's, Prim's, Activity Selection)
             4. **backtracking**: Recursive algorithms with state exploration and backtracking (e.g., N-Queens, Sudoku Solver)
             5. **branch_and_bound**: Backtracking with pruning based on bounds
-            6. **tail_recursive_iterative**: Tail recursion used solely to simulate a single-pass iterative process (one self-call, shrinking input, no branching)
-            7. **iterative**: Simple iterative algorithms without recursion
-            8. **simple**: Constant time or simple sequential algorithms
+            6. **branching_recursion**: Multiple recursive calls with constant decrements (e.g., naive Fibonacci, Catalan numbers) that create exponential trees not covered by Master Theorem
+            7. **tail_recursive_iterative**: Tail recursion used solely to simulate a single-pass iterative process (one self-call, shrinking input, no branching)
+            8. **iterative**: Simple iterative algorithms without recursion
+            9. **simple**: Constant time or simple sequential algorithms
 
             **Output Format (strict single-line JSON):**
             {"paradigm": "<one_of_the_above>", "confidence": 0.95, "reasoning": "brief justification"}
@@ -392,7 +504,7 @@ class ClassifierAgent(BaseAgent):
         """Strict system prompt used on retry when the model previously emitted malformed output."""
         return """You are an expert algorithm analyst. Return exactly one line of compact JSON and nothing else.
 
-        Valid paradigms: divide_and_conquer, dynamic_programming, greedy, backtracking, branch_and_bound, tail_recursive_iterative, iterative, simple.
+            Valid paradigms: divide_and_conquer, dynamic_programming, greedy, backtracking, branch_and_bound, branching_recursion, tail_recursive_iterative, iterative, simple.
 
         Output format (one line, no markdown, no fences, no prose):
         {"paradigm": "<one_of_the_above>", "confidence": 0.95, "reasoning": "brief justification"}

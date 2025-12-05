@@ -13,9 +13,7 @@ class LarkParser:
     """
 
     def __init__(self):
-        self._grammar_path = os.path.join(
-            os.path.dirname(__file__), "grammar.lark"
-        )
+        self._grammar_path = os.path.join(os.path.dirname(__file__), "grammar.lark")
         self._parser = self._initialize_parser()
 
     def _initialize_parser(self) -> Lark:
@@ -34,15 +32,5 @@ class LarkParser:
     def parse(self, code: str):
         """
         Parse the code and return the parse tree.
-
-        Args:
-            code: Source code string to parse
-
-        Returns:
-            Lark parse tree
-
-        Raises:
-            lark.exceptions.LarkError: If parsing fails
         """
         return self._parser.parse(code)
-

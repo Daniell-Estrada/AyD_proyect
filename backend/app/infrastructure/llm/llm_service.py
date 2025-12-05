@@ -1,56 +1,23 @@
 """
-LLM Service Layer with support for multiple providers (Anthropic, OpenAI, GitHub, Gemini, Mistral).
-Implements retry logic, token tracking, cost calculation, and fallback mechanisms.
-
-Design goals:
-- Lazy-load provider SDKs to keep unit tests lightweight and avoid hard dependencies when unused.
-- Guard every provider invocation with availability checks and clear error messages.
-- Preserve existing public interface and metrics tracking.
+LLM Service layer for interacting with various Large Language Model providers.
+Supports Anthropic Claude, OpenAI GPT, GitHub Models, Google Gemini and Mistral with
+automatic fallback and usage metrics tracking.
 """
 
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List
+
+from anthropic import Anthropic, AnthropicError
+from google import genai
+from google.genai.types import Content, Part
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+from mistralai import Mistral
+from openai import OpenAI, OpenAIError
 
 from app.shared.config import settings
-
-# Provider SDKs are imported lazily inside _init_clients to avoid hard failures
-# when optional dependencies are missing during unit tests.
-try:  # pragma: no cover - exercised in integration environments
-    from anthropic import Anthropic, AnthropicError
-except Exception:  # pragma: no cover - lightweight fallback for tests
-    Anthropic = None  # type: ignore
-    AnthropicError = Exception  # type: ignore
-
-try:  # pragma: no cover
-    from langchain_anthropic import ChatAnthropic
-except Exception:  # pragma: no cover
-    ChatAnthropic = None  # type: ignore
-
-try:  # pragma: no cover
-    from langchain_openai import ChatOpenAI
-except Exception:  # pragma: no cover
-    ChatOpenAI = None  # type: ignore
-
-try:  # pragma: no cover
-    from openai import OpenAI, OpenAIError
-except Exception:  # pragma: no cover
-    OpenAI = None  # type: ignore
-    OpenAIError = Exception  # type: ignore
-
-try:  # pragma: no cover
-    from google import genai
-    from google.genai.types import Content, Part
-except Exception:  # pragma: no cover
-    genai = None  # type: ignore
-    Content = None  # type: ignore
-    Part = None  # type: ignore
-
-try:  # pragma: no cover
-    from mistralai import Mistral
-except Exception:  # pragma: no cover
-    Mistral = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +41,6 @@ class LLMService:
     Supports Anthropic Claude and OpenAI GPT models with automatic fallback.
     """
 
-    # Approximate pricing per 1M tokens (as of Dec 2024)
     PRICING = {
         "claude-3-5-sonnet-20241022": {"input": 3.0, "output": 15.0},
         "claude-3-opus-20240229": {"input": 15.0, "output": 75.0},
@@ -91,42 +57,41 @@ class LLMService:
     }
 
     def __init__(self):
-        """Initialize LLM clients."""
         self.primary_provider = settings.primary_llm_provider
         self.primary_model = settings.primary_llm_model
         self.fallback_provider = settings.fallback_llm_provider
         self.fallback_model = settings.fallback_llm_model
-        
-        
-        # Initialize clients
+
         self._init_clients()
 
     def _init_clients(self):
         """Initialize LLM provider clients."""
-        # Anthropic
         if settings.anthropic_api_key:
             self.anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
             self.anthropic_langchain = ChatAnthropic(
-                model=self.primary_model
-                if self.primary_provider == "anthropic"
-                else self.fallback_model,
+                model=(
+                    self.primary_model
+                    if self.primary_provider == "anthropic"
+                    else self.fallback_model
+                ),
                 anthropic_api_key=settings.anthropic_api_key,
                 temperature=settings.temperature,
                 max_tokens=settings.max_tokens,
             )
 
-        # OpenAI
         if settings.openai_api_key:
             self.openai_client = OpenAI(api_key=settings.openai_api_key)
             self.openai_langchain = ChatOpenAI(
-                model=self.primary_model
-                if self.primary_provider == "openai"
-                else self.fallback_model,
+                model=(
+                    self.primary_model
+                    if self.primary_provider == "openai"
+                    else self.fallback_model
+                ),
                 openai_api_key=settings.openai_api_key,
                 temperature=settings.temperature,
                 max_tokens=settings.max_tokens,
             )
-        # GitHub Models (uses OpenAI client with custom base URL)
+
         if settings.github_token:
             self.github_client = OpenAI(
                 base_url=settings.github_endpoint,
@@ -137,11 +102,8 @@ class LLMService:
         if gemini_api_key:
             self.google_client = genai.Client(api_key=gemini_api_key)
 
-        # Mistral client should not depend on Gemini config
         if getattr(settings, "mistral_api_key", None):
             self.mistral_client = Mistral(api_key=settings.mistral_api_key)
-            
-
 
     def invoke(
         self,
@@ -151,24 +113,10 @@ class LLMService:
         max_retries: int = 3,
     ) -> tuple[str, LLMUsageMetrics]:
         """
-        Invoke LLM with retry logic and automatic fallback.
-
-        Args:
-            system_prompt: System message defining the agent's role
-            user_prompt: User message with the task
-            use_fallback: Force use of fallback provider
-            max_retries: Maximum number of retry attempts
-
-        Returns:
-            Tuple of (response_text, usage_metrics)
-
-        Raises:
-            Exception: If all retry attempts fail
+        Invoke LLM with given prompts, handling retries and fallback.
         """
         provider = self.fallback_provider if use_fallback else self.primary_provider
         model = self.fallback_model if use_fallback else self.primary_model
-        
-        print(f"LLM Service invoking {provider} with model {model}")
 
         for attempt in range(max_retries):
             try:
@@ -199,7 +147,6 @@ class LLMService:
 
                 duration_ms = (time.time() - start_time) * 1000
 
-                # Calculate cost
                 cost = self._calculate_cost(
                     model, usage["prompt_tokens"], usage["completion_tokens"]
                 )
@@ -220,9 +167,7 @@ class LLMService:
                     f"cost=${metrics.estimated_cost_usd:.4f}, "
                     f"duration={metrics.duration_ms:.0f}ms"
                 )
-                
-                print("response_text:", response_text )
-                
+
                 return response_text, metrics
 
             except (AnthropicError, OpenAIError) as e:
@@ -239,7 +184,7 @@ class LLMService:
                     else:
                         raise Exception(f"All LLM providers failed: {e}")
 
-                time.sleep(2**attempt)  # Exponential backoff
+                time.sleep(2**attempt)
 
     def _invoke_anthropic(
         self, system_prompt: str, user_prompt: str, model: str
@@ -299,26 +244,21 @@ class LLMService:
                 {"role": "user", "content": user_prompt},
             ],
         )
-        
+
         usage = {
             "prompt_tokens": response.usage.prompt_tokens,
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
         }
-        
-        print("GitHub response:", response)
-        print("GitHub usage:", usage)
 
         return response.choices[0].message.content, usage
-    
+
     def _invoke_google(
         self, system_prompt: str, user_prompt: str, model: str
     ) -> tuple[str, Dict[str, int]]:
         """Invoke Google Gemini API with proper Content/Part payloads."""
         if not hasattr(self, "google_client"):
             raise ValueError("Google Generative AI client is not configured")
-        
-        
 
         response = self.google_client.models.generate_content(
             model=model or settings.google_model,
@@ -326,7 +266,7 @@ class LLMService:
                 Content(parts=[Part(text=system_prompt)], role="model"),
                 Content(parts=[Part(text=user_prompt)], role="user"),
             ],
-        )   
+        )
 
         text_response = getattr(response, "text", None) or "".join(
             part.text
@@ -382,8 +322,12 @@ class LLMService:
 
         usage_info = getattr(response, "usage", None)
         usage = {
-            "prompt_tokens": getattr(usage_info, "prompt_tokens", 0) if usage_info else 0,
-            "completion_tokens": getattr(usage_info, "completion_tokens", 0) if usage_info else 0,
+            "prompt_tokens": (
+                getattr(usage_info, "prompt_tokens", 0) if usage_info else 0
+            ),
+            "completion_tokens": (
+                getattr(usage_info, "completion_tokens", 0) if usage_info else 0
+            ),
             "total_tokens": getattr(usage_info, "total_tokens", 0) if usage_info else 0,
         }
 
@@ -395,14 +339,7 @@ class LLMService:
         use_fallback: bool = True,
     ) -> tuple[str, LLMUsageMetrics]:
         """
-        Invoke LLM using LangChain interface (for LangGraph compatibility).
-
-        Args:
-            messages: List of LangChain message objects
-            use_fallback: Use fallback provider
-
-        Returns:
-            Tuple of (response_text, usage_metrics)
+        Invoke LLM via LangChain interface, returning response and usage metrics.
         """
         provider = self.fallback_provider if use_fallback else self.primary_provider
         model = self.fallback_model if use_fallback else self.primary_model
@@ -421,7 +358,6 @@ class LLMService:
         response = llm.invoke(messages)
         duration_ms = (time.time() - start_time) * 1000
 
-        # Extract usage (may vary by provider)
         usage_data = getattr(response, "response_metadata", {}).get("usage", {})
 
         if provider == "anthropic":

@@ -54,10 +54,16 @@ export interface AnalysisResult {
   analysis_steps: AnalysisStep[];
   diagrams: Record<string, string>;
   validation: ValidationResult;
-  metadata: {
-    total_cost_usd: number;
-    total_tokens: number;
-    total_duration_ms: number;
+  metadata?: {
+    total_cost_usd?: number;
+    total_tokens?: number;
+    total_duration_ms?: number;
+    paradigm_reasoning?: string;
+  };
+  metrics?: {
+    total_cost_usd?: number;
+    total_tokens?: number;
+    total_duration_ms?: number;
   };
   created_at: string;
 }

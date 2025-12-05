@@ -1,11 +1,12 @@
-"""Repository contracts for persistence adapters in a hexagonal architecture."""
-
-from __future__ import annotations
+"""
+Ports for analysis session and result persistence.
+"""
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from app.domain.models.analysis import AnalysisResult, AgentEvent, HitlResponse, Session, SessionStatus
+from app.domain.models.analysis import (AgentEvent, AnalysisResult,
+                                        HitlResponse, Session, SessionStatus)
 
 
 class SessionRepository(ABC):
@@ -30,7 +31,9 @@ class SessionRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def append_hitl_response(self, session_id: str, response: HitlResponse) -> None:
+    async def append_hitl_response(
+        self, session_id: str, response: HitlResponse
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
