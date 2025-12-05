@@ -1,0 +1,36 @@
+[project]
+name = "ayd-proyect"
+version = "0.1.0"
+description = "Intelligent Algorithm Complexity Analyzer with Multi-Agent AI System"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.75.0",
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "vulture>=2.14",
+    "lark>=1.3.1",
+    "langchain-anthropic>=1.2.0",
+    "langchain-openai>=1.1.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "dotenv>=0.9.9",
+    "python-dotenv>=1.2.1",
+    "motor>=3.7.1",
+    "uvicorn>=0.38.0",
+    "python-socketio>=5.11.0",
+    "fastapi>=0.123.5",
+    "langgraph>=1.0.4",
+    "networkx>=3.6",
+    "sympy>=1.14.0",
+    "google-genai>=1.53.0",
+    "mistralai>=1.9.0",
+    "redis>=5.1.1",
+]
+
+[tool.vulture]
+exclude = [
+    "app/infrastructure/parser/visitor.py",
+]
+min_confidence = 70

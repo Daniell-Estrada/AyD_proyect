@@ -1,0 +1,185 @@
+COMMENT: /#[^\n]*/
+NUMBER: /[-+]?[0-9]+(\.[0-9]+)?/
+STRING: ESCAPED_STRING
+RANGE: ".."
+ASSIGN: "<-"
+PLUS: "+"
+MINUS: "-"
+AND: "and"
+OR: "or"
+NOT: "not"
+TRUE: "T"
+FALSE: "F"
+NULL: "NULL"
+COMP_OP: "<=" | ">=" | "!=" | /<(?!\-)/ | ">" | "="
+NL: /(\r?\n)+/
+
+FUNCTION: "function"
+BEGIN: "begin"
+END: "end"
+RETURN_KW: "return"
+CLASS_KW: "class"
+VAR_KW: "var"
+NEW_KW: "new"
+expression_list: expression ("," expression)+   -> expression_list
+
+IF: "if"
+THEN: "then"
+ELSE: "else"
+
+FOR: "for"
+TO: "to"
+DO: "do"
+WHILE: "while"
+REPEAT: "repeat"
+UNTIL: "until"
+EACH: "each"
+IN_KW: "in"
+
+CALL_KW: "CALL" | "call"
+PRINT: "print"
+LENGTH_KW: "length"
+DIVINT: "div"
+MOD: "mod"
+CEIL: "ceil"
+FLOOR: "floor"
+CONCAT: "concat"
+SUBSTRING: "substring"
+STRLEN: "strlen"
+GRAPH_KW: "Graph"
+NODE_KW: "Node"
+EDGE_KW: "Edge"
+ADDNODE: "addNode"
+ADDEDGE: "addEdge"
+NEIGHBORS: "neighbors"
+
+VAR: /(?!\b(?:for|each|in|to|do|begin|end|while|repeat|until|if|then|else|CALL|call|function|print|return|class|var|new|and|or|not|T|F|NULL|length|ceil|floor|concat|substring|strlen|Graph|Node|Edge|addNode|addEdge|neighbors)\b)[A-Za-z_][A-Za-z0-9_]*/
+
+?statement: var_decl
+        | assignment
+        | for_loop
+        | while_loop
+        | repeat_loop
+        | if_statement
+        | call_stmt
+		| return_statement
+		| graph_stmt
+		| print_stmt
+
+suite: statement+
+
+code_block: BEGIN suite? END    -> code_block
+
+?condition: expression
+?expression: or_expr
+?or_expr: and_expr (OR and_expr)*
+?and_expr: not_expr (AND not_expr)*
+?not_expr: NOT not_expr
+    | comp_expr
+
+?comp_expr: sum (COMP_OP sum)?
+?sum: sum PLUS product    -> add
+    | sum MINUS product   -> sub
+    | product
+?product: product "*" atom    -> mul
+    | product "/" atom    -> div
+    | product MOD atom    -> mod
+    | product DIVINT atom   -> divint
+    | atom
+
+?atom: tuple_expr
+    | NUMBER   -> number
+    | STRING    -> string
+    | TRUE    -> true
+    | FALSE   -> false
+    | NULL    -> null
+    | func_call_expr
+    | PRINT "(" expression ")"    -> print_function
+    | LENGTH_KW "(" expression ")"    -> length_function
+    | CEIL "(" expression ")"   -> ceil_function
+    | FLOOR "(" expression ")"    -> floor_function
+    | STRLEN "(" expression ")"   -> strlen_function
+    | CONCAT "(" expression "," expression ")"    -> concat_function
+    | SUBSTRING "(" expression "," expression "," expression ")"    -> substring_function
+    | ADDNODE "(" VAR "," expression ")"    -> addnode_function
+    | ADDEDGE "(" VAR "," expression "," expression ")"   -> addedge_function
+    | NEIGHBORS "(" VAR "," expression ")"    -> neighbors_function
+    | VAR ("[" expression "]")+   -> array_access
+    | VAR "[" expression RANGE expression "]"   -> array_slice
+    | VAR ("." VAR)+   -> field_access
+    | NEW_KW VAR "(" ")"    -> new_object
+    | NEW_KW GRAPH_KW "(" ")"   -> new_graph
+    | VAR   -> var
+    | "(" expression ")"
+
+tuple_expr: "(" expression ("," expression)+ ")" -> tuple_expr
+
+?lvalue: VAR    -> lvalue_var
+    | VAR ("[" indexer "]")+    -> lvalue_array
+    | VAR ("." VAR)+   -> lvalue_field
+
+start: program
+program: (class_def | subroutine_def | statement (NL)*)*
+
+class_def: [CLASS_KW] VAR "{" [VAR (VAR)*] "}"    -> class_def
+subroutine_def: [FUNCTION] VAR "(" [parameter ("," parameter)*] ")" code_block
+
+parameter: CLASS_KW VAR VAR   -> object_parameter
+    | GRAPH_KW VAR    -> graph_parameter
+    | VAR ("[" indexer "]")+    -> array_parameter
+    | VAR   -> simple_parameter
+
+indexer: expression RANGE expression    -> indexer_range
+    | RANGE expression    -> indexer_open_start
+    | expression RANGE    -> indexer_open_end
+    | RANGE   -> indexer_open_both
+    | expression    -> indexer_single
+    |   -> indexer_empty
+
+indexers: indexer+
+
+object_parameter: CLASS_KW VAR VAR
+graph_parameter: GRAPH_KW VAR
+
+var_decl: VAR_KW var_decl_item ("," var_decl_item)*
+var_decl_item: VAR ("[" indexer "]" )+   -> array_var_decl
+		| CLASS_KW VAR VAR    -> object_var_decl
+		| GRAPH_KW VAR    -> graph_var_decl
+		| VAR
+
+assignment: lvalue ASSIGN expression
+
+?func_call_expr: CALL_KW (VAR|ADDNODE|ADDEDGE) "(" [expression ("," expression)*] ")"   -> func_call_expr
+        | VAR "(" [expression ("," expression)*] ")" 		-> func_call_expr
+        | func_call_expr "." VAR "(" [expression ("," expression)*] ")"   -> call_method
+
+call_stmt: CALL_KW (VAR|ADDNODE|ADDEDGE) "(" [expression ("," expression)*] ")"   -> call_stmt
+
+print_stmt: PRINT "(" expression ")"    -> print_stmt
+return_statement: RETURN_KW expression?   -> return_stmt
+
+if_statement: IF "("? condition ")"? THEN code_block (ELSE code_block)?   -> if_statement
+    | IF "("? condition ")"? THEN suite (ELSE suite)? END   -> if_statement
+
+for_loop: FOR VAR ASSIGN expression TO expression DO code_block   -> for_loop
+    | FOR VAR ASSIGN expression TO expression DO suite END   -> for_loop
+    | FOR EACH [VAR] VAR ASSIGN expression DO code_block            -> for_each_loop_assign
+    | FOR EACH [VAR] VAR ASSIGN expression DO suite END            -> for_each_loop_assign
+    | FOR EACH [VAR] VAR IN_KW expression DO code_block             -> for_each_loop_in
+    | FOR EACH [VAR] VAR IN_KW expression DO suite END             -> for_each_loop_in
+    | FOR EACH VAR "(" VAR "," VAR ")" IN_KW expression DO code_block -> for_each_named_tuple_in
+    | FOR EACH VAR "(" VAR "," VAR ")" IN_KW expression DO suite END -> for_each_named_tuple_in
+    | FOR EACH "(" VAR "," VAR ")" IN_KW expression DO code_block -> for_each_tuple_in
+    | FOR EACH "(" VAR "," VAR ")" IN_KW expression DO suite END -> for_each_tuple_in
+while_loop: WHILE "("? condition ")"? DO code_block   -> while_loop
+    | WHILE "("? condition ")"? DO suite END   -> while_loop
+repeat_loop: REPEAT (code_block | suite) UNTIL "(" condition ")"    -> repeat_loop
+
+graph_stmt: ADDNODE "(" VAR "," expression ")"    -> addnode_stmt
+    | ADDEDGE "(" VAR "," expression "," expression ")"   -> addedge_stmt
+
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS
+%ignore COMMENT
+%ignore NL

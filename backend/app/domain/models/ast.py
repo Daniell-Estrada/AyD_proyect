@@ -1,0 +1,708 @@
+"""
+AST node definitions for a custom programming language.
+
+Provides comprehensive Abstract Syntax Tree representation supporting:
+    - Source position tracking for error reporting
+    - Metadata attachment for analysis hints
+    - Visitor pattern for tree traversal
+    - Type safety through dataclasses
+
+All AST nodes inherit from ASTNode base class and implement
+the Visitor pattern through accept() method.
+
+Design Patterns:
+    - Visitor Pattern: Enables separation of algorithms from object structure
+    - Composite Pattern: Tree structure with uniform node interface
+    - Decorator Pattern: Metadata attachment without modifying core structure
+"""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
+
+
+@dataclass
+class SourcePosition:
+    """
+    Source position information for AST nodes.
+    
+    Tracks location in original source code for error reporting,
+    debugging, and IDE integration.
+    
+    Attributes:
+        line: Starting line number (1-based)
+        column: Starting column number (1-based)
+        end_line: Ending line number
+        end_column: Ending column number
+        filename: Optional source file name
+    
+    Example:
+        >>> pos = SourcePosition(line=10, column=5, end_line=10, end_column=20)
+        >>> print(pos)
+        "10:5"
+    """
+
+    line: int = 0
+    column: int = 0
+    end_line: int = 0
+    end_column: int = 0
+    filename: Optional[str] = None
+
+    def __str__(self) -> str:
+        """
+        Format position as 'file:line:column' or 'line:column'.
+        
+        Returns:
+            Formatted position string for error messages
+        """
+        if self.filename:
+            return f"{self.filename}:{self.line}:{self.column}"
+        return f"{self.line}:{self.column}"
+
+
+@dataclass
+class ASTMetadata:
+    """
+    Metadata for AST nodes supporting analysis and optimization.
+    
+    Enables attaching analysis hints, complexity annotations, and
+    pattern classifications without modifying core AST structure.
+    
+    Attributes:
+        position: Source code location information
+        complexity_hints: Algorithm-specific complexity annotations
+        loop_depth: Nesting depth for loop nodes
+        is_recursive: Flag indicating recursive function calls
+        pattern_type: Detected algorithmic pattern (e.g., "divide_and_conquer")
+    
+    Example:
+        >>> metadata = ASTMetadata(
+        ...     loop_depth=2,
+        ...     complexity_hints={"iterations": "n^2"},
+        ...     pattern_type="nested_loops"
+        ... )
+    """
+
+    position: Optional[SourcePosition] = None
+    complexity_hints: Optional[Dict[str, Any]] = None
+    loop_depth: int = 0
+    is_recursive: bool = False
+    pattern_type: Optional[str] = None
+
+
+class ASTNode(ABC):
+    """
+    Base class for all AST nodes implementing Visitor pattern.
+    
+    Provides:
+        - Metadata attachment for analysis annotations
+        - Source position tracking
+        - Visitor pattern interface via accept()
+    
+    All concrete AST nodes must inherit from this class and
+    implement the accept() method for visitor traversal.
+    
+    Example:
+        >>> class MyNode(ASTNode):
+        ...     def accept(self, visitor):
+        ...         return visitor.visit_my_node(self)
+    """
+
+    # Default placeholder so subclass dataclass constructors always have the attribute
+    metadata: Optional[ASTMetadata] = None
+
+    def __init__(self):
+        """Initialize node with empty metadata."""
+        self.metadata: Optional[ASTMetadata] = None
+
+    @abstractmethod
+    def accept(self, visitor: Any) -> Any:
+        """
+        Accept visitor for tree traversal (Visitor pattern).
+        
+        Args:
+            visitor: Visitor object with visit_* methods
+        
+        Returns:
+            Result of visitor operation (visitor-dependent)
+        """
+
+    def set_position(
+        self,
+        line: int,
+        column: int,
+        end_line: Optional[int] = None,
+        end_column: Optional[int] = None,
+        filename: Optional[str] = None,
+    ):
+        """
+        Set source position information for error reporting.
+        
+        Args:
+            line: Starting line number (1-based)
+            column: Starting column number (1-based)
+            end_line: Ending line number (defaults to line)
+            end_column: Ending column number (defaults to column)
+            filename: Optional source file name
+        """
+        if not self.metadata:
+            self.metadata = ASTMetadata()
+
+        self.metadata.position = SourcePosition(
+            line=line,
+            column=column,
+            end_line=end_line or line,
+            end_column=end_column or column,
+            filename=filename,
+        )
+
+    def get_position(self) -> Optional[SourcePosition]:
+        """
+        Get source position information if available.
+        
+        Returns:
+            SourcePosition object or None if not set
+        """
+        return self.metadata.position if self.metadata else None
+
+
+@dataclass
+class Program(ASTNode):
+    """
+    Root node representing complete program/algorithm.
+    
+    Contains top-level statements including function definitions,
+    variable declarations, and executable statements.
+    
+    Attributes:
+        statements: List of top-level AST nodes
+    
+    Example:
+        >>> program = Program(statements=[
+        ...     SubroutineDef(name="main", params=[], body=[...]),
+        ...     VarDecl(items=["x", "y"])
+        ... ])
+    """
+    
+    statements: List[ASTNode] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Initialize parent ASTNode after dataclass initialization."""
+        super().__init__()
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for program traversal."""
+        return visitor.visit_program(self)
+
+
+@dataclass
+class Comment(ASTNode):
+    """
+    Comment node for documentation preservation.
+    
+    Attributes:
+        text: Comment text content (without delimiters)
+    """
+    
+    text: str = ""
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for comment processing."""
+        return visitor.visit_comment(self)
+
+
+@dataclass
+class Number(ASTNode):
+    """
+    Numeric literal node supporting integers and floats.
+    
+    Attributes:
+        value: Numeric value (int or float)
+    
+    Example:
+        >>> num = Number(value=42)
+        >>> pi = Number(value=3.14159)
+    """
+    
+    value: Union[int, float]
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for number processing."""
+        return visitor.visit_number(self)
+
+
+@dataclass
+class String(ASTNode):
+    """
+    String literal node.
+    
+    Attributes:
+        value: String content (without quotes)
+    """
+    
+    value: str
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for string processing."""
+        return visitor.visit_string(self)
+
+
+@dataclass
+class Var(ASTNode):
+    """
+    Variable reference node.
+    
+    Represents variable usage (not declaration).
+    
+    Attributes:
+        name: Variable identifier name
+    
+    Example:
+        >>> var = Var(name="counter")
+    """
+    
+    name: str
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for variable reference processing."""
+        return visitor.visit_var(self)
+
+
+@dataclass
+class Bool(ASTNode):
+    """
+    Boolean literal node.
+    
+    Attributes:
+        value: Boolean value (True or False)
+    """
+    
+    value: bool
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for boolean processing."""
+        return visitor.visit_bool(self)
+
+
+@dataclass
+class Null(ASTNode):
+    """
+    Null/None literal node representing absence of value.
+    
+    Attributes:
+        value: Always None
+    """
+    
+    value: None = None
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for null processing."""
+        return visitor.visit_null(self)
+
+
+@dataclass
+class TupleLiteral(ASTNode):
+    """Tuple literal expression, e.g., (a, b, c)."""
+
+    elements: List[Any]
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_tuple_literal(self)
+
+
+@dataclass
+class VarDecl(ASTNode):
+    """
+    Variable declaration node.
+    
+    Declares one or more variables without initialization.
+    
+    Attributes:
+        items: List of variable names or (name, type) tuples
+    
+    Example:
+        >>> decl = VarDecl(items=["x", "y", "sum"])
+    """
+    
+    items: List[Any] = field(default_factory=list)
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for variable declaration processing."""
+        return visitor.visit_var_decl(self)
+
+
+@dataclass
+class Assignment(ASTNode):
+    """
+    Assignment statement node.
+    
+    Represents value assignment to variable or array element.
+    
+    Attributes:
+        target: Left-hand side (Var or ArrayAccess)
+        value: Right-hand side expression
+    
+    Example:
+        >>> assign = Assignment(
+        ...     target=Var(name="x"),
+        ...     value=Number(value=10)
+        ... )
+    """
+    
+    target: Any
+    value: Any
+
+    def accept(self, visitor: Any) -> Any:
+        """Accept visitor for assignment processing."""
+        return visitor.visit_assignment(self)
+
+
+@dataclass
+class VarTarget(ASTNode):
+    name: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_var_target(self)
+
+
+@dataclass
+class ArrayTarget(ASTNode):
+    name: str
+    index: List[Any]
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_array_target(self)
+
+
+@dataclass
+class FieldTarget(ASTNode):
+    obj: str
+    field: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_field_target(self)
+
+
+@dataclass
+class ForLoop(ASTNode):
+    var: str
+    start: Any
+    end: Any
+    step: Optional[Any] = None
+    body: List[Any] = field(default_factory=List[Any])
+    preserve_counter_value: bool = True
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_for_loop(self)
+
+
+@dataclass
+class ForEachLoop(ASTNode):
+    var: str
+    collection: Any
+    body: List[Any] = field(default_factory=List[Any])
+    preserve_counter_value: bool = True
+    tuple_vars: Optional[List[str]] = None
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_for_each_loop(self)
+
+
+@dataclass
+class WhileLoop(ASTNode):
+    cond: Any
+    body: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_while_loop(self)
+
+
+@dataclass
+class RepeatUntil(ASTNode):
+    cond: Any
+    body: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_repeat_until(self)
+
+
+@dataclass
+class IfElse(ASTNode):
+    cond: Any
+    then_branch: List[Any] = field(default_factory=List[Any])
+    else_branch: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_if_else(self)
+
+
+@dataclass
+class CallStmt(ASTNode):
+    name: str
+    args: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_call_stmt(self)
+
+
+@dataclass
+class CallMethod(ASTNode):
+    obj: Any
+    method: str
+    args: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_call_method(self)
+
+
+@dataclass
+class ReturnStmt(ASTNode):
+    value: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_return_stmt(self)
+
+
+@dataclass
+class ArrayAccess(ASTNode):
+    name: str
+    index: List[Any]
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_array_access(self)
+
+
+@dataclass
+class ArraySlice(ASTNode):
+    name: str
+    ranges: List[Any]
+    start: Optional[Any] = None
+    end: Optional[Any] = None
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_array_slice(self)
+
+
+@dataclass
+class FieldAccess(ASTNode):
+    obj: str
+    field: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_field_access(self)
+
+
+@dataclass
+class FuncCallExpr(ASTNode):
+    name: str | Null
+    args: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_func_call_expr(self)
+
+
+@dataclass
+class BinOp(ASTNode):
+    op: Any
+    left: Any
+    right: Any
+    short_circuit: bool = False
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_bin_op(self)
+
+
+@dataclass
+class ShortCircuitBinOp(ASTNode):
+    op: str
+    left: Any
+    right: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_short_circuit_bin_op(self)
+
+
+@dataclass
+class UnOp(ASTNode):
+    op: str
+    value: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_un_op(self)
+
+
+@dataclass
+class ClassDef(ASTNode):
+    name: str | Null
+    fields: List[str] = field(default_factory=List[str])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_class_def(self)
+
+
+@dataclass
+class NewObject(ASTNode):
+    class_name: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_new_object(self)
+
+
+@dataclass
+class Parameter(ASTNode):
+    name: str | Null
+    param_type: str
+    dimensions: Optional[List[Any]]
+    class_name: Optional[str]
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_parameter(self)
+
+
+@dataclass
+class SubroutineDef(ASTNode):
+    name: str | Null
+    parameters: List[Parameter] = field(default_factory=List[Parameter])
+    body: List[ASTNode] = field(default_factory=List[ASTNode])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_subroutine_def(self)
+
+
+@dataclass
+class LengthFunction(ASTNode):
+    array: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_length_function(self)
+
+
+@dataclass
+class CeilFunction(ASTNode):
+    expr: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_ceil_function(self)
+
+
+@dataclass
+class FloorFunction(ASTNode):
+    expr: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_floor_function(self)
+
+
+@dataclass
+class StrlenFunction(ASTNode):
+    expr: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_strlen_function(self)
+
+
+@dataclass
+class ConcatFunction(ASTNode):
+    left: Any
+    right: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_concat_function(self)
+
+
+@dataclass
+class SubstringFunction(ASTNode):
+    string: Any
+    start: Any
+    length: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_substring_function(self)
+
+
+@dataclass
+class PrintStmt(ASTNode):
+    value: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_print_stmt(self)
+
+
+@dataclass
+class AddNodeFunction(ASTNode):
+    graph: str
+    node: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_add_node_function(self)
+
+
+@dataclass
+class AddEdgeFunction(ASTNode):
+    graph: str
+    from_node: Any
+    to_node: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_add_edge_function(self)
+
+
+@dataclass
+class NeighborsFunction(ASTNode):
+    graph: str
+    node: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_neighbors_function(self)
+
+
+@dataclass
+class ArrayVarDecl(ASTNode):
+    name: str
+    dimensions: List[Any]
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_array_var_decl(self)
+
+
+@dataclass
+class ObjectVarDecl(ASTNode):
+    class_name: str
+    name: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_object_var_decl(self)
+
+
+@dataclass
+class GraphVarDecl(ASTNode):
+    name: str
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_graph_var_decl(self)
+
+
+@dataclass
+class GraphOperation(ASTNode):
+    graph: str
+    nodes: List[Any] = field(default_factory=List[Any])
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_graph_operation(self)
+
+
+@dataclass
+class GraphTraversal(ASTNode):
+    graph: str
+    start_node: Any
+    end_node: Any
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_graph_traversal(self)
+
+
+@dataclass
+class NewGraph(ASTNode):
+
+    def accept(self, visitor: Any) -> Any:
+        return visitor.visit_new_graph(self)
